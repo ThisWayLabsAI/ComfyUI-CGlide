@@ -196,6 +196,94 @@ Render All mutates continuation and carried-reference state while it runs. Every
 
 This feature needs either a native CGlide implementation or a supported render automation API. The initial lifecycle events cannot call the current `renderAll()` function because it is private to `buildUI()`.
 
+### 6. Script breakdown and coverage planning
+
+The desired workflow accepts a screenplay PDF, organizes it into scenes, locations, characters, props, action, dialogue, and story beats, then proposes editorially distinct coverage for each scene.
+
+Coverage may include:
+
+- Establishing and master shots
+- Medium and two-shots
+- Over-the-shoulder and reverse over-the-shoulder shots
+- Character close-ups and reaction shots
+- Inserts, cutaways, transitions, and special-purpose shots
+
+This differs from seed hunting. Coverage planning creates different shot intentions, framing, subjects, and editorial purposes. Seed hunting may later create several visual takes of each planned shot.
+
+The preferred design is a composable TWL pipeline rather than one large node:
+
+```text
+TWL Load Screenplay
+  -> TWL Break Down Screenplay
+  -> TWL Plan Coverage
+  -> TWL Build Video Prompts
+  -> TWL Export to CGlide
+```
+
+The loader should support text-based PDFs first and identify scanned PDFs that require an optional OCR step. The breakdown should produce a neutral, versioned structure with stable scene, location, character, and shot IDs. It must not use CGlide's private project format as its primary data model.
+
+The coverage planner should support presets such as minimal, dialogue, cinematic, action, montage, and custom. Each proposed shot should record its editorial purpose as well as its visual prompt inputs. A human review step should allow users to lock continuity facts, correct parsing, remove redundant coverage, add shots, and regenerate only selected material.
+
+An initial MVP can stop at reviewable shot-plan JSON and prompt output. Direct creation of H3 Studio clips should follow only after a supported project/import API exists, or through one isolated compatibility adapter that can be updated when CGlide's private schema changes.
+
+## Wishlist Priority
+
+Priority is based on dependencies, usefulness, implementation risk, and expected upstream-conflict cost. It is not a judgment that later items are less valuable.
+
+### Priority 0: Compatibility foundation - complete
+
+- Keep upstream CGlide and private TWL customizations in separate repositories.
+- Provide the versioned ready/destroy lifecycle through the TWL compatibility adapter.
+- Prefer a native upstream lifecycle seam if the maintainer accepts the proposal.
+
+### Priority 1: Prompt editing API and prompt chips
+
+- Establish narrow `getPrompt`, `setPrompt`, and `insertPrompt` capabilities.
+- Add camera angle, movement, shot vocabulary, and model-oriented prompt chips.
+- Use this small feature to validate that edits update visible UI, stored state, serialization, validation, and dirty state together.
+
+This is the smallest high-value feature and the best proof that the extension architecture is sound.
+
+### Priority 2: Reference workflows
+
+Implement in this order:
+
+1. Copy selected references between clips with a preview and explicit overwrite policy.
+2. Add project-load policies: replace, preserve, fill-empty, and prompt.
+
+Both require a supported project/clip state API. Reference copying is the narrower first operation; import policies follow after reference categories and merge rules have been proven.
+
+### Priority 3: Script breakdown and coverage-planning MVP
+
+- Load text-based screenplay PDFs.
+- Produce a neutral, versioned screenplay breakdown.
+- Generate editable coverage plans and model-specific prompts.
+- Export reviewable JSON without directly mutating H3 Studio.
+
+This track can begin independently of the CGlide project API. Keeping the MVP neutral makes it testable and reusable while direct integration remains unsettled.
+
+### Priority 4: CGlide shot-plan import
+
+- Convert approved coverage plans into CGlide projects or clips.
+- Preserve stable scene, character, location, and shot identities.
+- Require an official import/project API or isolate all compatibility code in the adapter.
+
+### Priority 5: Render All seed hunt / multiple takes
+
+- Add whole-project takes with fixed, incremented, or randomized seed policies.
+- Snapshot and restore project state so takes cannot contaminate each other.
+- Define naming, cancellation, resume, chaining, and output-retention behavior.
+
+This is valuable but touches the private Render All lifecycle and carries greater state-corruption risk than the earlier UI and planning features.
+
+### Priority 6: External prompt-node interoperability
+
+- Explore a stable active-prompt override first.
+- Treat bidirectional prompt-node workflows and director/conditioning separation as a distinct architectural proposal.
+- Avoid dynamic per-clip graph sockets that change when clips are reordered.
+
+This comes last because it changes the graph contract and likely requires upstream Python/backend cooperation, whereas the earlier work can remain primarily in the companion extension.
+
 ## Desired Frontend API, Introduced Incrementally
 
 The following is a capability inventory, not a request to implement everything at once.
@@ -378,4 +466,6 @@ Record decisions here as the author responds or implementation proceeds.
 
 | Date | Decision | Reason |
 |---|---|---|
-| TBD | Await maintainer response before implementing the extension seam | Avoid committing to an API shape the maintainer may prefer to name or structure differently |
+| 2026-10-04 | Add script breakdown and coverage planning to the TWL wishlist | Coverage variants provide editorial alternatives that seed variation alone cannot create |
+| 2026-10-04 | Use a neutral, versioned shot-plan model before direct CGlide import | Keeps the planning system testable and avoids coupling it to CGlide's private project schema |
+| 2026-10-04 | Implement a private compatibility adapter while awaiting a native upstream seam | Allows TWL development to proceed while keeping the upstream fork unchanged and the compatibility boundary isolated |
