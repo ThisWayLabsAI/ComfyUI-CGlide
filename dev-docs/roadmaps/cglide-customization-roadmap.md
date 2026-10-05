@@ -315,6 +315,26 @@ Implement in this order:
 
 Reference copying is the next requested feature. Its narrow bridge should perform authoritative project-state changes inside CGlide while the selection and preview UI remains in the companion extension.
 
+### Priority 2 follow-up: Clean continuation inputs before rerendering - next
+
+Add an opt-in **Clear continues** control to the project panel's Render row. When enabled, Render should clear existing continuation inputs for the clips it is about to queue before the first render starts.
+
+The cleanup belongs in `web/csglide_cast.js`, immediately inside the authoritative `renderAll()` setup, rather than in the companion extension. Render scope, skipped clips, links, `lastOut`, the live clip state, `CONTINUE FROM`, and the automation-owned seam reference are all private to `buildUI()`.
+
+Required behavior:
+
+- Apply to the clips actually queued by the selected Render scope; do not mutate clips outside that queue.
+- Clear each queued clip's `state.cont` data.
+- Also clear the paired video reference only when it carries the `seam` marker; preserve every manually selected video reference.
+- Preserve clip links. A link describes intended continuity and is not stale generated media.
+- Preserve `lastOut`. It is the recorded predecessor output Render uses to rebuild a link, especially when rendering a scope that starts in the middle of a chain.
+- Run orphan/preflight validation as though stale `CONTINUE FROM` data is unavailable when cleanup is enabled. A linked mid-chain clip must have its predecessor in the queue or a usable predecessor `lastOut`.
+- Take the normal project Revert snapshot before clearing anything.
+- If preflight fails or the user declines a warning, change nothing.
+- Keep the option off by default initially and explain in its tooltip that linked clips will be repopulated during the run.
+
+This is intentionally narrower than seed hunting. It establishes a clean, repeatable starting state for one Render invocation; multi-take seed policies can build on the same reset boundary later.
+
 ### Priority 3: Prompt editing API and prompt chips
 
 - Establish narrow `getPrompt`, `setPrompt`, and `insertPrompt` capabilities.
@@ -400,6 +420,17 @@ This comes last because it changes the graph contract and likely requires upstre
 - [ ] Add replace-matching-subject merge behavior; the first implementation supports append or whole-section replacement.
 - [ ] Add multi-destination copying after single-destination semantics receive user evaluation.
 - [ ] Add project-load policies only after copy and merge semantics are proven.
+
+### Milestone 2A: Clean continuation reruns - next
+
+- [ ] Add an opt-in Clear continues control beside the Render controls.
+- [ ] Make preflight ignore existing continuation media when cleanup is enabled.
+- [ ] Reuse the authoritative paired cleanup for `cont` and seam-marked video references.
+- [ ] Preserve links, `lastOut`, manual references, clips outside the queue, and skipped clips.
+- [ ] Take one Revert snapshot before cleanup and make no changes when preflight is abandoned.
+- [ ] Validate whole-project, chain, from-here, and single-clip scopes.
+- [ ] Validate linked and unlinked clips, mid-chain starts, skips, stop/resume, and failed-render behavior.
+- [ ] Confirm saved project data contains the rebuilt continuation state after a successful linked run.
 
 ### Milestone 3: Safe prompt assistance
 
@@ -611,6 +642,8 @@ Record decisions here as the author responds or implementation proceeds.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-04 | Implement opt-in continuation cleanup as the next feature, inside CGlide's Render All setup | CGlide owns render scope and the paired `cont`/seam state; cleaning at this boundary removes repetitive manual work without exposing mutable project internals to the companion |
+| 2026-10-04 | Preserve links and `lastOut` while clearing continuation media | Links express user intent and `lastOut` lets Render rebuild mid-chain continuity; only stale generated inputs need removal |
 | 2026-10-04 | Keep camera movement and framing in `detailed_description`, normally inside the applicable `[Shot N]` block | Camera direction is shot intent rather than reusable reference identity; reference copying must therefore leave it behind unless the user explicitly copies the whole scene section |
 | 2026-10-04 | Put reference-copy parsing and UI in the private companion and expose only cloned snapshots plus an atomic validated apply capability from CGlide | This confines the upstream conflict surface to one small seam and prevents companion code from mutating `gcast_project` or calling private closures |
 | 2026-10-04 | Move section-aware reference copying ahead of the general prompt API | It is the next requested workflow and can be implemented atomically through one narrow CGlide capability |
