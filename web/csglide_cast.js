@@ -7065,6 +7065,49 @@ function buildUI(node) {
     insertPrompt,
   });
 
+  /* Project navigation for focused editors. The full clip states are cloned
+   * for read-only presentation (prompt text and compact reference previews),
+   * while every mutation delegates to the same switch/add functions used by
+   * CGlide's own project panel. */
+  function projectWorkspaceSnapshot() {
+    const snapshot = referenceCopySnapshot();
+    return Object.freeze({
+      version: 1,
+      project: snapshot.project,
+      activeClipId: snapshot.activeClipId,
+      activeState: clone(st),
+      clips: snapshot.clips,
+    });
+  }
+
+  function selectProjectClip(request) {
+    if (!request || request.version !== 1 || typeof request.clipId !== "string") {
+      throw new Error("invalid clip-selection request");
+    }
+    if (run) throw new Error("clips cannot be switched while the project is rendering");
+    const p = proj();
+    const index = p.shots.findIndex((shot) => String(shot && shot.id || "") === request.clipId);
+    if (index < 0) throw new Error("the requested clip no longer exists");
+    switchTo(index);
+    return projectWorkspaceSnapshot();
+  }
+
+  function addProjectClip(request) {
+    if (!request || request.version !== 1 || typeof request.blank !== "boolean") {
+      throw new Error("invalid add-clip request");
+    }
+    if (run) throw new Error("clips cannot be added while the project is rendering");
+    addShot(request.blank);
+    return projectWorkspaceSnapshot();
+  }
+
+  const projectNavigationV1 = Object.freeze({
+    version: 1,
+    snapshot: projectWorkspaceSnapshot,
+    selectClip: selectProjectClip,
+    addClip: addProjectClip,
+  });
+
   return {
     root,
     destroy() {
@@ -7088,6 +7131,7 @@ function buildUI(node) {
     capabilities: Object.freeze({
       referenceCopy: referenceCopyV1,
       promptEditing: promptEditingV1,
+      projectNavigation: projectNavigationV1,
     }),
   };
 }
