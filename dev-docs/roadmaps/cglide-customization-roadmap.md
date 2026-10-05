@@ -337,9 +337,27 @@ This is intentionally narrower than seed hunting. It establishes a clean, repeat
 
 ### Priority 3: Prompt editing API and prompt chips
 
-- Establish narrow `getPrompt`, `setPrompt`, and `insertPrompt` capabilities.
-- Add camera angle, movement, shot vocabulary, and model-oriented prompt chips.
-- Use this small feature to validate that edits update visible UI, stored state, serialization, validation, and dirty state together.
+- Establish narrow `getPrompt`, `setPrompt`, and `insertPrompt` capabilities. Implemented on the Dev branch as the version 1 `promptEditing` capability.
+- Add camera angle and movement chips first. The initial palette includes framing, angle, static, dolly/tracking, pan, crane, and handheld phrases.
+- Keep vocabulary deterministic and editable as data in the companion extension; do not make a model call for a chip insertion.
+- Insert only at the current cursor or selection. In structured prompts, require that range to be inside `detailed_description`; report whether it is in the introduction or a specific `[Shot N]` block.
+- Refuse to guess a target when the cursor is in `subject_definitions`, `summary`, sound, music, or an unknown section. Older unstructured prompts remain cursor-editable.
+- Use this small feature to validate that edits update visible UI, stored state, serialization, validation, selection, and dirty state together.
+
+The version 1 boundary is deliberately command-oriented:
+
+```js
+const snapshot = api.getPrompt();
+api.insertPrompt({
+  version: 1,
+  expectedRevision: snapshot.revision,
+  text: "The camera slowly pushes in.",
+  start: snapshot.selectionStart,
+  end: snapshot.selectionEnd,
+});
+```
+
+`getPrompt()` returns an immutable text/selection snapshot and opaque revision. `setPrompt()` and `insertPrompt()` reject stale revisions and route the edit through CGlide's authoritative textarea/state/render/commit path. The capability does not expose mutable clip or project state.
 
 This is the smallest high-value feature and the best proof that the extension architecture is sound.
 
@@ -437,9 +455,13 @@ This comes last because it changes the graph contract and likely requires upstre
 
 ### Milestone 3: Safe prompt assistance
 
-- [ ] Define supported `getPrompt`, `setPrompt`, and `insertPrompt` capabilities.
-- [ ] Verify updates keep state, textarea, highlighting, validation, serialization, and dirty state synchronized.
-- [ ] Add camera angle, movement, shot vocabulary, and model-oriented prompt chips.
+- [x] Define a version 1 `getPrompt`, `setPrompt`, and `insertPrompt` capability with stale-edit protection.
+- [x] Add the first camera framing, angle, and movement chip palette in the companion extension.
+- [x] Keep structured camera insertion inside `detailed_description` and identify the active `[Shot N]` from the cursor.
+- [x] Cover section boundaries, shot targeting, unstructured prompts, and insertion whitespace with deterministic model tests.
+- [x] Verify in live ComfyUI that updates keep state, textarea, highlighting, validation, serialization, selection, and dirty state synchronized.
+- [x] Verify stale-revision rejection, refusal outside `detailed_description`, Shot 2 targeting, and zero scoped Camera-palette accessibility violations in an isolated browser fixture.
+- [ ] Expand model-oriented vocabulary after the first camera-chip set receives user evaluation.
 
 ### Milestone 4: Focused Prompt Workspace
 
@@ -645,6 +667,8 @@ Record decisions here as the author responds or implementation proceeds.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-05 | Expose prompt editing as versioned snapshot/set/insert commands with an opaque revision, while keeping camera vocabulary and UI in the private companion | The seam synchronizes all of CGlide's authoritative prompt representations without exposing mutable state, and the frequently changing UX remains outside the high-conflict upstream file |
+| 2026-10-05 | Make camera chips cursor-scoped and refuse structured insertion outside `detailed_description` | Camera direction is shot/scene intent; silently relocating it from `subject_definitions` or another section would change authored meaning and encourage prompt drift |
 | 2026-10-05 | Ship Clear continues as an opt-in Render setting, off by default on new nodes and remembered after the user selects it | Cleanup changes generation inputs; keeping the choice explicit avoids surprising projects that intentionally reuse a manually prepared continuation |
 | 2026-10-04 | Implement opt-in continuation cleanup as the next feature, inside CGlide's Render All setup | CGlide owns render scope and the paired `cont`/seam state; cleaning at this boundary removes repetitive manual work without exposing mutable project internals to the companion |
 | 2026-10-04 | Preserve links and `lastOut` while clearing continuation media | Links express user intent and `lastOut` lets Render rebuild mid-chain continuity; only stale generated inputs need removal |
