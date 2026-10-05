@@ -475,6 +475,7 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Integrate camera prompt chips.
 - [x] Add individual MiniMax section starters, a complete missing-section starter, and an initial `[Shot 1]` example.
 - [x] Preserve existing authored sections and deterministically place missing sections in canonical order.
+- [x] Make individual section and Shot 1 controls jump to existing content instead of becoming dead-end duplicate warnings.
 - [x] Validate no-project opening, live prompt serialization, camera insertion, inherited/blank clip creation, clip switching, Escape, focus restoration, and zero scoped accessibility violations in isolated live ComfyUI.
 - [x] Add direct reference-package copy access with the active clip preselected and return to the workspace after close/apply.
 - [x] Enrich the clip rail with compact reference thumbnails, prompt summaries, and keyboard previous/next navigation.
@@ -677,6 +678,7 @@ Record decisions here as the author responds or implementation proceeds.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-05 | Make prompt-structure buttons add missing content or navigate to existing content | The same compact controls can serve as a section outline for long prompts, reducing scrolling without adding another navigation surface |
 | 2026-10-05 | Keep the clip rail visible and enrich it with a reference thumbnail, prompt summary, and Ctrl+PageUp/PageDown navigation | Identifying and changing clips should not require moving between the project list and a distant prompt area |
 | 2026-10-05 | Reuse the existing atomic Copy refs dialog from the workspace and return to the workspace afterward | This removes canvas navigation without duplicating reference-copy planning, preview, validation, or apply semantics |
 | 2026-10-05 | Add deterministic MiniMax section starters and an editable `[Shot 1]` example to the Prompt Workspace | Prompt structure is easy to forget; explicit scaffolding provides a reliable starting point without asking a model to rewrite or infer the user's authored prompt |
