@@ -6818,6 +6818,101 @@ function buildUI(node) {
 
   function load(raw) { st = parseInitial(raw); ta.value = st.prompt; render(); }
 
+  /* Narrow extension capability for reference-package workflows.
+   *
+   * Consumers receive cloned clip state and can only commit a complete prompt
+   * + slot proposal back through this validator. The opaque revision prevents
+   * applying a preview after either the visible clip or its saved project copy
+   * changed. Keeping the authoritative write here means extensions never need
+   * to reach into gcast_project or call the private render/stash closures. */
+  function referenceCopyRevision(state) {
+    const text = JSON.stringify(state || {});
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  function referenceCopySnapshot() {
+    stash();
+    const p = proj();
+    /* Workflows can contain an in-memory project created before clip IDs were
+       added to the project file format. Normalize missing or duplicate IDs at
+       this supported boundary so a snapshot never exposes an ambiguous key. */
+    const ids = new Set();
+    let assignedId = false;
+    p.shots.forEach((shot) => {
+      const id = String(shot && shot.id || "");
+      if (id && !ids.has(id)) { ids.add(id); return; }
+      let next;
+      do { next = uid(); } while (ids.has(next));
+      shot.id = next;
+      ids.add(next);
+      assignedId = true;
+    });
+    if (assignedId) commit();
+    return Object.freeze({
+      version: 1,
+      project: String(p.name || ""),
+      activeClipId: p.idx >= 0 && p.shots[p.idx] ? String(p.shots[p.idx].id || "") : null,
+      clips: Object.freeze(p.shots.map((shot, index) => {
+        const state = parseInitial(JSON.stringify(shot.state || {}));
+        return Object.freeze({
+          id: String(shot.id || ""),
+          index,
+          name: shotLabel(shot, index),
+          revision: referenceCopyRevision(state),
+          state: clone(state),
+        });
+      })),
+    });
+  }
+
+  function applyReferenceCopy(request) {
+    if (!request || request.version !== 1 || typeof request.targetClipId !== "string"
+        || typeof request.expectedRevision !== "string" || typeof request.prompt !== "string"
+        || !request.slots || typeof request.slots !== "object") {
+      throw new Error("invalid reference-copy request");
+    }
+
+    stash();
+    const p = proj();
+    const index = p.shots.findIndex((shot) => String(shot && shot.id || "") === request.targetClipId);
+    if (index < 0) throw new Error("the destination clip no longer exists");
+
+    const current = parseInitial(JSON.stringify(p.shots[index].state || {}));
+    if (referenceCopyRevision(current) !== request.expectedRevision) {
+      throw new Error("the destination clip changed after the preview; preview it again");
+    }
+
+    const next = parseInitial(Object.assign({}, clone(current), {
+      prompt: request.prompt,
+      slots: clone(request.slots),
+    }));
+    if (next.mode !== current.mode) throw new Error("reference copying cannot change clip mode");
+
+    snapProject("before copying references");
+    p.shots[index].state = clone(next);
+    if (index === p.idx) load(JSON.stringify(next));
+    commit();
+    paintShotsBtn();
+    paintPresetName();
+    renderShots();
+    return Object.freeze({
+      version: 1,
+      targetClipId: request.targetClipId,
+      revision: referenceCopyRevision(next),
+    });
+  }
+
+  const referenceCopyV1 = Object.freeze({
+    version: 1,
+    snapshot: referenceCopySnapshot,
+    apply: applyReferenceCopy,
+  });
+
   return {
     root,
     destroy() {
@@ -6838,6 +6933,7 @@ function buildUI(node) {
     pasteFile(file) { takePaste(file, null); },
     save() { return JSON.stringify(st); },
     get state() { return st; },
+    capabilities: Object.freeze({ referenceCopy: referenceCopyV1 }),
   };
 }
 
