@@ -226,6 +226,21 @@ The coverage planner should support presets such as minimal, dialogue, cinematic
 
 An initial MVP can stop at reviewable shot-plan JSON and prompt output. Direct creation of H3 Studio clips should follow only after a supported project/import API exists, or through one isolated compatibility adapter that can be updated when CGlide's private schema changes.
 
+### 7. Focused prompt editing and display preferences
+
+The prompt-writing experience should gain a set of incremental UI improvements:
+
+- A persistent prompt font-size preference
+- A compact/collapsed settings row so the prompt begins closer to clip navigation and receives more vertical room
+- A future full-window Prompt Workspace with a blurred backdrop
+- A clip rail for navigating, selecting, and adding clips within that workspace
+- Compact access to reference images, video, and audio while writing
+- Prompt chips and reference-copy actions in the same focused workspace
+
+Font size and layout density are browser/user preferences, not project state. The Canvas card shares its row with Length and Reference Refinement, so the useful compact behavior collapses the entire row rather than hiding only one card.
+
+The Prompt Workspace requires supported prompt and project APIs for listing, switching, adding, and updating clips. It should not simulate clicks against CGlide's private DOM. It should also provide normal modal behavior: focus containment, keyboard navigation, Escape to close, and focus restoration.
+
 ## Wishlist Priority
 
 Priority is based on dependencies, usefulness, implementation risk, and expected upstream-conflict cost. It is not a judgment that later items are less valuable.
@@ -236,7 +251,15 @@ Priority is based on dependencies, usefulness, implementation risk, and expected
 - Provide the versioned ready/destroy lifecycle through the TWL compatibility adapter.
 - Prefer a native upstream lifecycle seam if the maintainer accepts the proposal.
 
-### Priority 1: Prompt editing API and prompt chips
+### Priority 1: Display preference quick wins - ready for user testing
+
+- Add a persistent prompt font-size control.
+- Add a persistent Show/Hide settings control for the Canvas, Length, and Reference Refinement row.
+- Keep the preferences out of workflow and project serialization.
+
+These are isolated companion-extension changes with immediate value and no project-state mutation.
+
+### Priority 2: Prompt editing API and prompt chips
 
 - Establish narrow `getPrompt`, `setPrompt`, and `insertPrompt` capabilities.
 - Add camera angle, movement, shot vocabulary, and model-oriented prompt chips.
@@ -244,7 +267,7 @@ Priority is based on dependencies, usefulness, implementation risk, and expected
 
 This is the smallest high-value feature and the best proof that the extension architecture is sound.
 
-### Priority 2: Reference workflows
+### Priority 3: Reference workflows
 
 Implement in this order:
 
@@ -253,7 +276,16 @@ Implement in this order:
 
 Both require a supported project/clip state API. Reference copying is the narrower first operation; import policies follow after reference categories and merge rules have been proven.
 
-### Priority 3: Script breakdown and coverage-planning MVP
+### Priority 4: Focused Prompt Workspace
+
+- Open prompt editing in a full-window modal with a blurred backdrop.
+- Provide clip navigation and Add Clip in a side rail.
+- Keep reference images, video, and audio accessible in a compact form.
+- Reuse the supported prompt and project capabilities established in earlier milestones.
+
+The workspace is a high-value UX target, but it follows the prompt and clip APIs it needs so it does not depend on private closures or brittle simulated clicks.
+
+### Priority 5: Script breakdown and coverage-planning MVP
 
 - Load text-based screenplay PDFs.
 - Produce a neutral, versioned screenplay breakdown.
@@ -262,13 +294,13 @@ Both require a supported project/clip state API. Reference copying is the narrow
 
 This track can begin independently of the CGlide project API. Keeping the MVP neutral makes it testable and reusable while direct integration remains unsettled.
 
-### Priority 4: CGlide shot-plan import
+### Priority 6: CGlide shot-plan import
 
 - Convert approved coverage plans into CGlide projects or clips.
 - Preserve stable scene, character, location, and shot identities.
 - Require an official import/project API or isolate all compatibility code in the adapter.
 
-### Priority 5: Render All seed hunt / multiple takes
+### Priority 7: Render All seed hunt / multiple takes
 
 - Add whole-project takes with fixed, incremented, or randomized seed policies.
 - Snapshot and restore project state so takes cannot contaminate each other.
@@ -276,13 +308,69 @@ This track can begin independently of the CGlide project API. Keeping the MVP ne
 
 This is valuable but touches the private Render All lifecycle and carries greater state-corruption risk than the earlier UI and planning features.
 
-### Priority 6: External prompt-node interoperability
+### Priority 8: External prompt-node interoperability
 
 - Explore a stable active-prompt override first.
 - Treat bidirectional prompt-node workflows and director/conditioning separation as a distinct architectural proposal.
 - Avoid dynamic per-clip graph sockets that change when clips are reordered.
 
 This comes last because it changes the graph contract and likely requires upstream Python/backend cooperation, whereas the earlier work can remain primarily in the companion extension.
+
+## Delivery Checklist
+
+### Foundation
+
+- [x] Keep upstream CGlide and TWL customization code in separate repositories.
+- [x] Create and privately back up `ComfyUI-CGlide-TWL`.
+- [x] Emit versioned UI ready/destroy lifecycle events from the compatibility adapter.
+- [x] Keep CGlide selectors and compatibility anchors isolated in the adapter.
+- [ ] Replace the fallback lifecycle with native upstream hooks if the maintainer accepts the proposal.
+
+### Milestone 1: Display preference quick wins
+
+- [x] Document prompt font sizing, compact settings, and the Prompt Workspace direction.
+- [x] Add prompt font controls with a bounded 10px-20px range.
+- [x] Keep the textarea and highlighted prompt presentation at the same font size.
+- [x] Add a Show/Hide settings control for the full Canvas/Length/Reference Refinement row.
+- [x] Apply changes to all live H3 Studio nodes.
+- [x] Persist both preferences in browser local storage, not project data.
+- [x] Complete automated live-browser interaction, cross-node, lifecycle, persistence, and accessibility validation.
+- [ ] Complete user visual evaluation in normal ComfyUI workflows.
+
+### Milestone 2: Safe prompt assistance
+
+- [ ] Define supported `getPrompt`, `setPrompt`, and `insertPrompt` capabilities.
+- [ ] Verify updates keep state, textarea, highlighting, validation, serialization, and dirty state synchronized.
+- [ ] Add camera angle, movement, shot vocabulary, and model-oriented prompt chips.
+
+### Milestone 3: Reference workflows
+
+- [ ] Define a reference package containing media, role/description, source token, and optional prompt fragment.
+- [ ] Copy references between clips with collision-safe token remapping.
+- [ ] Offer `Reference only` and `Reference + prompt definition` choices with a preview.
+- [ ] Add project-load policies: replace, preserve, fill-empty, and prompt.
+
+### Milestone 4: Focused Prompt Workspace
+
+- [ ] Build the modal shell, backdrop, focus containment, and keyboard behavior.
+- [ ] Add the clip rail, clip switching, and Add Clip.
+- [ ] Add compact image/video/audio reference access.
+- [ ] Integrate prompt chips and reference-package copying.
+
+### Milestone 5: Script breakdown and coverage planning
+
+- [ ] Load text-based screenplay PDFs and identify documents needing OCR.
+- [ ] Produce a neutral, versioned scene/character/location/shot model.
+- [ ] Generate editable coverage plans and model-specific prompts.
+- [ ] Export reviewable shot-plan JSON.
+- [ ] Import approved plans after a supported CGlide project API exists.
+
+### Later rendering and graph work
+
+- [ ] Define safe project snapshots and whole-project seed-take behavior.
+- [ ] Add multi-take Render All only after cancellation, chaining, naming, and state restoration are specified.
+- [ ] Explore an active-prompt override for external prompt nodes.
+- [ ] Treat bidirectional prompt-node integration as a separate architectural proposal.
 
 ## Desired Frontend API, Introduced Incrementally
 
@@ -466,6 +554,9 @@ Record decisions here as the author responds or implementation proceeds.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-04 | Prioritize font sizing and compact settings as the first TWL UI milestone | They provide immediate value without mutating project state or requiring new upstream APIs |
+| 2026-10-04 | Treat the future expanded editor as a focused Prompt Workspace | Clip navigation, compact references, and prompt tools belong in one coherent editing experience |
+| 2026-10-04 | Copy references as structured packages with optional prompt definitions | Blind media or full-prompt copying cannot safely remap tokens or preserve destination text |
 | 2026-10-04 | Add script breakdown and coverage planning to the TWL wishlist | Coverage variants provide editorial alternatives that seed variation alone cannot create |
 | 2026-10-04 | Use a neutral, versioned shot-plan model before direct CGlide import | Keeps the planning system testable and avoids coupling it to CGlide's private project schema |
 | 2026-10-04 | Implement a private compatibility adapter while awaiting a native upstream seam | Allows TWL development to proceed while keeping the upstream fork unchanged and the compatibility boundary isolated |
