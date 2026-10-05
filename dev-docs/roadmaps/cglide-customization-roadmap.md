@@ -393,6 +393,7 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Resolve cross-reference dependencies and refuse application when destination media tokens remain unresolved.
 - [x] Remap `@imageN`, video/audio tokens, and `<Subject N>` identifiers collision-safely.
 - [x] Preview token mappings, dependency-added references, copied sections, subject mappings, unresolved tokens, and the resulting prompt.
+- [x] Show compact image/video thumbnails and an audio marker beside selectable source references.
 - [x] Apply the entire copy atomically through a narrow authoritative CGlide capability with stale-preview protection and a Revert snapshot.
 - [x] Validate dependency closure and camera-section exclusion with deterministic model tests.
 - [x] Validate preview, apply, stale-preview rejection, active-state persistence, Revert backup, modal focus restoration, lifecycle cleanup, and zero scoped accessibility violations in live ComfyUI.
