@@ -171,6 +171,16 @@ Section merge policies should include append new entries, replace matching subje
 
 Parsing and remapping should be deterministic and versioned for the current MiniMax prompt structure. It should preserve original text and section order rather than asking an LLM to rewrite definitions during a copy operation.
 
+#### Camera-direction boundary
+
+Reference identity and reference semantics belong in `subject_definitions`, with corresponding preservation rules in `retention_analysis`. Camera direction is scene and shot intent, not reference metadata:
+
+- Shot-specific angle, framing, lens, movement, and camera behavior belong inside the relevant `[Shot N]` block in `detailed_description`.
+- Camera language that intentionally applies to every shot may live in the introductory prose of `detailed_description` before `[Shot 1]`.
+- Camera instructions must not be copied with a reference package by default.
+- Copying `detailed_description` remains an explicit whole-section opt-in because extracting isolated camera phrases can change shot meaning.
+- Future camera chips should insert at the active shot or cursor location. They should not append camera text to `subject_definitions`.
+
 ### 4. External prompt-enhancer nodes
 
 H3 Studio currently stores the active clip prompt inside `h3_data` and produces conditioning internally. It has no prompt `STRING` input or output.
@@ -376,14 +386,18 @@ This comes last because it changes the graph contract and likely requires upstre
 
 ### Milestone 2: Section-aware reference workflows
 
-- [ ] Parse the current MiniMax prompt into ordered, lossless sections.
-- [ ] Detect `subject_definitions`, `retention_analysis`, scene sections, and unknown sections.
-- [ ] Define a reference package containing selected media, definitions, source tokens, and subject identifiers.
-- [ ] Default to related `subject_definitions` and `retention_analysis`; leave scene-specific sections unchecked.
-- [ ] Resolve cross-reference dependencies without creating dangling media or subject tokens.
-- [ ] Remap `@imageN`/video tokens and `<Subject N>` identifiers collision-safely.
-- [ ] Preview related, omitted, appended, and replaced entries before applying.
-- [ ] Apply the entire copy atomically through a narrow authoritative CGlide capability.
+- [x] Parse the current MiniMax prompt into ordered, lossless sections.
+- [x] Detect `subject_definitions`, `retention_analysis`, scene sections, and unknown sections.
+- [x] Define a reference package containing selected media, definitions, source tokens, and subject identifiers.
+- [x] Default to related `subject_definitions` and `retention_analysis`; leave scene-specific sections unchecked.
+- [x] Resolve cross-reference dependencies and refuse application when destination media tokens remain unresolved.
+- [x] Remap `@imageN`, video/audio tokens, and `<Subject N>` identifiers collision-safely.
+- [x] Preview token mappings, dependency-added references, copied sections, subject mappings, unresolved tokens, and the resulting prompt.
+- [x] Apply the entire copy atomically through a narrow authoritative CGlide capability with stale-preview protection and a Revert snapshot.
+- [x] Validate dependency closure and camera-section exclusion with deterministic model tests.
+- [x] Validate preview, apply, stale-preview rejection, active-state persistence, Revert backup, modal focus restoration, lifecycle cleanup, and zero scoped accessibility violations in live ComfyUI.
+- [ ] Add replace-matching-subject merge behavior; the first implementation supports append or whole-section replacement.
+- [ ] Add multi-destination copying after single-destination semantics receive user evaluation.
 - [ ] Add project-load policies only after copy and merge semantics are proven.
 
 ### Milestone 3: Safe prompt assistance
@@ -596,6 +610,8 @@ Record decisions here as the author responds or implementation proceeds.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-04 | Keep camera movement and framing in `detailed_description`, normally inside the applicable `[Shot N]` block | Camera direction is shot intent rather than reusable reference identity; reference copying must therefore leave it behind unless the user explicitly copies the whole scene section |
+| 2026-10-04 | Put reference-copy parsing and UI in the private companion and expose only cloned snapshots plus an atomic validated apply capability from CGlide | This confines the upstream conflict surface to one small seam and prevents companion code from mutating `gcast_project` or calling private closures |
 | 2026-10-04 | Move section-aware reference copying ahead of the general prompt API | It is the next requested workflow and can be implemented atomically through one narrow CGlide capability |
 | 2026-10-04 | Treat `subject_definitions` as the default MiniMax reference metadata block and include related `retention_analysis` when present | These blocks carry reusable identity, environment, prop, and retention meaning while scene sections normally should not transfer |
 | 2026-10-04 | Parse and remap copied prompt sections deterministically | Copying must preserve authored text and must not introduce LLM rewriting or unresolved reference dependencies |
