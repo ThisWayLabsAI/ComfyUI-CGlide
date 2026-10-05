@@ -315,9 +315,9 @@ Implement in this order:
 
 Reference copying is the next requested feature. Its narrow bridge should perform authoritative project-state changes inside CGlide while the selection and preview UI remains in the companion extension.
 
-### Priority 2 follow-up: Clean continuation inputs before rerendering - next
+### Priority 2 follow-up: Clean continuation inputs before rerendering - implemented on Dev
 
-Add an opt-in **Clear continues** control to the project panel's Render row. When enabled, Render should clear existing continuation inputs for the clips it is about to queue before the first render starts.
+An opt-in **Clear continues** control is available in the project panel's Render row. When enabled, Render clears existing continuation inputs for the clips it is about to queue before the first render starts.
 
 The cleanup belongs in `web/csglide_cast.js`, immediately inside the authoritative `renderAll()` setup, rather than in the companion extension. Render scope, skipped clips, links, `lastOut`, the live clip state, `CONTINUE FROM`, and the automation-owned seam reference are all private to `buildUI()`.
 
@@ -421,16 +421,19 @@ This comes last because it changes the graph contract and likely requires upstre
 - [ ] Add multi-destination copying after single-destination semantics receive user evaluation.
 - [ ] Add project-load policies only after copy and merge semantics are proven.
 
-### Milestone 2A: Clean continuation reruns - next
+### Milestone 2A: Clean continuation reruns - ready for user evaluation
 
-- [ ] Add an opt-in Clear continues control beside the Render controls.
-- [ ] Make preflight ignore existing continuation media when cleanup is enabled.
-- [ ] Reuse the authoritative paired cleanup for `cont` and seam-marked video references.
-- [ ] Preserve links, `lastOut`, manual references, clips outside the queue, and skipped clips.
-- [ ] Take one Revert snapshot before cleanup and make no changes when preflight is abandoned.
-- [ ] Validate whole-project, chain, from-here, and single-clip scopes.
-- [ ] Validate linked and unlinked clips, mid-chain starts, skips, stop/resume, and failed-render behavior.
-- [ ] Confirm saved project data contains the rebuilt continuation state after a successful linked run.
+- [x] Add an opt-in Clear continues control beside the Render controls, off by default.
+- [x] Make preflight ignore existing continuation media when cleanup is enabled.
+- [x] Reuse one authoritative paired cleanup for `cont` and seam-marked video references.
+- [x] Preserve links, `lastOut`, manual references, clips outside the queue, and skipped clips.
+- [x] Take one Revert snapshot before cleanup and make no changes when preflight is abandoned.
+- [x] Validate whole-project, chain, and single-clip scopes in an isolated live browser fixture.
+- [ ] Validate the from-here scope in a normal project.
+- [x] Validate linked and unlinked clips, a rejected mid-chain start, and skipped clips.
+- [ ] Validate stop/resume and a render that fails after cleanup; Revert remains the documented recovery path.
+- [x] Confirm project data contains rebuilt continuation and seam state after a successful linked run.
+- [x] Audit the Render controls with zero scoped accessibility violations; transformed-canvas overlap leaves contrast checks incomplete.
 
 ### Milestone 3: Safe prompt assistance
 
@@ -642,6 +645,7 @@ Record decisions here as the author responds or implementation proceeds.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-05 | Ship Clear continues as an opt-in Render setting, off by default on new nodes and remembered after the user selects it | Cleanup changes generation inputs; keeping the choice explicit avoids surprising projects that intentionally reuse a manually prepared continuation |
 | 2026-10-04 | Implement opt-in continuation cleanup as the next feature, inside CGlide's Render All setup | CGlide owns render scope and the paired `cont`/seam state; cleaning at this boundary removes repetitive manual work without exposing mutable project internals to the companion |
 | 2026-10-04 | Preserve links and `lastOut` while clearing continuation media | Links express user intent and `lastOut` lets Render rebuild mid-chain continuity; only stale generated inputs need removal |
 | 2026-10-04 | Keep camera movement and framing in `detailed_description`, normally inside the applicable `[Shot N]` block | Camera direction is shot intent rather than reusable reference identity; reference copying must therefore leave it behind unless the user explicitly copies the whole scene section |
