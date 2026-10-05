@@ -134,7 +134,42 @@ Important rules to decide before implementation:
 - Confirm how clips from different projects are matched: position, name, or manual mapping.
 - Do not silently copy `carry`, `seam`, `pick`, or analysis metadata unless requested.
 - Warn when source and target use different H3 modes.
-- Decide whether related prompt tokens should remain unchanged, be copied, or be remapped.
+- Remap both media tokens such as `@image4` and subject identifiers such as `<Subject 4>` when destination identifiers differ.
+
+MiniMax reference meaning currently lives primarily in the prompt's `subject_definitions` block. A reference package should therefore support section-aware copying instead of treating nearby free-form text as an unstructured prompt fragment.
+
+The copy UI should first select media, then present every detected prompt section with one of these behaviors:
+
+- `related`: copy only entries connected to the selected references
+- `whole`: copy the complete section
+- `skip`: do not copy the section
+
+Recommended defaults for the current MiniMax prompt structure:
+
+- `subject_definitions`: related entries selected
+- `retention_analysis`: related entries selected when present
+- `summary`: skipped
+- `detailed_description`: skipped
+- `overall_soundscape`: skipped
+- `non_diegetic_music`: skipped
+- Unknown detected sections: shown under advanced options and skipped
+
+Definition-oriented sections may be extracted entry by entry. Scene-oriented sections such as `summary` and `detailed_description` should default to whole-section or skip behavior because partial extraction can change the source scene's meaning.
+
+Dependencies must be closed before applying a copy. For example, a relationship statement mentioning both `@image1` and `@image2` cannot accompany only `@image1` unless the user also copies `@image2` or explicitly omits that statement. Likewise, a `retention_analysis` entry must remain paired with its corresponding `<Subject N>` definition.
+
+The preview must show:
+
+- Source-to-destination media token mapping
+- Source-to-destination `<Subject N>` mapping
+- Included and omitted definition entries
+- Related references required by cross-reference statements
+- Destination entries that will be appended or replaced
+- Any unresolved or dangling tokens
+
+Section merge policies should include append new entries, replace matching subjects, replace the entire section, and skip. The operation must be atomic: media, prompt sections, identifier remapping, and validation all succeed together or the destination clip remains unchanged.
+
+Parsing and remapping should be deterministic and versioned for the current MiniMax prompt structure. It should preserve original text and section order rather than asking an LLM to rewrite definitions during a copy operation.
 
 ### 4. External prompt-enhancer nodes
 
@@ -251,7 +286,7 @@ Priority is based on dependencies, usefulness, implementation risk, and expected
 - Provide the versioned ready/destroy lifecycle through the TWL compatibility adapter.
 - Prefer a native upstream lifecycle seam if the maintainer accepts the proposal.
 
-### Priority 1: Display preference quick wins - ready for user testing
+### Priority 1: Display preference quick wins - complete and user accepted
 
 - Add a persistent prompt font-size control.
 - Add a persistent Show/Hide settings control for the Canvas, Length, and Reference Refinement row.
@@ -259,22 +294,24 @@ Priority is based on dependencies, usefulness, implementation risk, and expected
 
 These are isolated companion-extension changes with immediate value and no project-state mutation.
 
-### Priority 2: Prompt editing API and prompt chips
+### Priority 2: Section-aware reference workflows
+
+Implement in this order:
+
+1. Parse MiniMax prompt sections without rewriting them.
+2. Copy selected media plus related `subject_definitions` and optional `retention_analysis` entries.
+3. Preview and remap media tokens and `<Subject N>` identifiers atomically.
+4. Add project-load policies: replace, preserve, fill-empty, and prompt.
+
+Reference copying is the next requested feature. Its narrow bridge should perform authoritative project-state changes inside CGlide while the selection and preview UI remains in the companion extension.
+
+### Priority 3: Prompt editing API and prompt chips
 
 - Establish narrow `getPrompt`, `setPrompt`, and `insertPrompt` capabilities.
 - Add camera angle, movement, shot vocabulary, and model-oriented prompt chips.
 - Use this small feature to validate that edits update visible UI, stored state, serialization, validation, and dirty state together.
 
 This is the smallest high-value feature and the best proof that the extension architecture is sound.
-
-### Priority 3: Reference workflows
-
-Implement in this order:
-
-1. Copy selected references between clips with a preview and explicit overwrite policy.
-2. Add project-load policies: replace, preserve, fill-empty, and prompt.
-
-Both require a supported project/clip state API. Reference copying is the narrower first operation; import policies follow after reference categories and merge rules have been proven.
 
 ### Priority 4: Focused Prompt Workspace
 
@@ -335,20 +372,25 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Apply changes to all live H3 Studio nodes.
 - [x] Persist both preferences in browser local storage, not project data.
 - [x] Complete automated live-browser interaction, cross-node, lifecycle, persistence, and accessibility validation.
-- [ ] Complete user visual evaluation in normal ComfyUI workflows.
+- [x] Complete user visual evaluation in normal ComfyUI workflows; current implementation accepted.
 
-### Milestone 2: Safe prompt assistance
+### Milestone 2: Section-aware reference workflows
+
+- [ ] Parse the current MiniMax prompt into ordered, lossless sections.
+- [ ] Detect `subject_definitions`, `retention_analysis`, scene sections, and unknown sections.
+- [ ] Define a reference package containing selected media, definitions, source tokens, and subject identifiers.
+- [ ] Default to related `subject_definitions` and `retention_analysis`; leave scene-specific sections unchecked.
+- [ ] Resolve cross-reference dependencies without creating dangling media or subject tokens.
+- [ ] Remap `@imageN`/video tokens and `<Subject N>` identifiers collision-safely.
+- [ ] Preview related, omitted, appended, and replaced entries before applying.
+- [ ] Apply the entire copy atomically through a narrow authoritative CGlide capability.
+- [ ] Add project-load policies only after copy and merge semantics are proven.
+
+### Milestone 3: Safe prompt assistance
 
 - [ ] Define supported `getPrompt`, `setPrompt`, and `insertPrompt` capabilities.
 - [ ] Verify updates keep state, textarea, highlighting, validation, serialization, and dirty state synchronized.
 - [ ] Add camera angle, movement, shot vocabulary, and model-oriented prompt chips.
-
-### Milestone 3: Reference workflows
-
-- [ ] Define a reference package containing media, role/description, source token, and optional prompt fragment.
-- [ ] Copy references between clips with collision-safe token remapping.
-- [ ] Offer `Reference only` and `Reference + prompt definition` choices with a preview.
-- [ ] Add project-load policies: replace, preserve, fill-empty, and prompt.
 
 ### Milestone 4: Focused Prompt Workspace
 
@@ -554,6 +596,9 @@ Record decisions here as the author responds or implementation proceeds.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-04 | Move section-aware reference copying ahead of the general prompt API | It is the next requested workflow and can be implemented atomically through one narrow CGlide capability |
+| 2026-10-04 | Treat `subject_definitions` as the default MiniMax reference metadata block and include related `retention_analysis` when present | These blocks carry reusable identity, environment, prop, and retention meaning while scene sections normally should not transfer |
+| 2026-10-04 | Parse and remap copied prompt sections deterministically | Copying must preserve authored text and must not introduce LLM rewriting or unresolved reference dependencies |
 | 2026-10-04 | Prioritize font sizing and compact settings as the first TWL UI milestone | They provide immediate value without mutating project state or requiring new upstream APIs |
 | 2026-10-04 | Treat the future expanded editor as a focused Prompt Workspace | Clip navigation, compact references, and prompt tools belong in one coherent editing experience |
 | 2026-10-04 | Copy references as structured packages with optional prompt definitions | Blind media or full-prompt copying cannot safely remap tokens or preserve destination text |
