@@ -6977,6 +6977,94 @@ function buildUI(node) {
     apply: applyReferenceCopy,
   });
 
+  /* Narrow prompt-editing capability for extension-provided writing aids.
+   *
+   * The textarea and `st.prompt` are deliberately kept private: changing only
+   * one of them leaves highlighting, validation, serialization, and ComfyUI's
+   * dirty state out of sync. Every supported edit comes through this boundary
+   * and carries an opaque revision so a delayed popover action cannot overwrite
+   * typing that happened after it took its snapshot. */
+  function promptRevision(text) {
+    const value = String(text || "");
+    let hash = 2166136261;
+    for (let i = 0; i < value.length; i++) {
+      hash ^= value.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `${value.length.toString(36)}-${(hash >>> 0).toString(36)}`;
+  }
+
+  const clampPromptOffset = (value, fallback, length) => {
+    const number = Number(value);
+    return Number.isInteger(number) ? Math.max(0, Math.min(length, number)) : fallback;
+  };
+
+  function getPrompt() {
+    const text = String(st.prompt || "");
+    const start = clampPromptOffset(ta.selectionStart, text.length, text.length);
+    const end = clampPromptOffset(ta.selectionEnd, start, text.length);
+    return Object.freeze({
+      version: 1,
+      text,
+      selectionStart: Math.min(start, end),
+      selectionEnd: Math.max(start, end),
+      revision: promptRevision(text),
+    });
+  }
+
+  function commitPromptEdit(text, selectionStart, selectionEnd, focus) {
+    ta.value = text;
+    st.prompt = text;
+    closeAC();
+    renderTags();
+    renderCheck();
+    commit();
+    ta.setSelectionRange(selectionStart, selectionEnd);
+    if (focus !== false) ta.focus({ preventScroll: true });
+    return getPrompt();
+  }
+
+  function setPrompt(request) {
+    if (!request || request.version !== 1 || typeof request.expectedRevision !== "string"
+        || typeof request.text !== "string") {
+      throw new Error("invalid prompt-edit request");
+    }
+    if (promptRevision(st.prompt) !== request.expectedRevision) {
+      throw new Error("the prompt changed after the edit was prepared; try again");
+    }
+    const length = request.text.length;
+    const start = clampPromptOffset(request.selectionStart, length, length);
+    const end = clampPromptOffset(request.selectionEnd, start, length);
+    return commitPromptEdit(request.text, Math.min(start, end), Math.max(start, end), request.focus);
+  }
+
+  function insertPrompt(request) {
+    if (!request || request.version !== 1 || typeof request.expectedRevision !== "string"
+        || typeof request.text !== "string") {
+      throw new Error("invalid prompt insertion request");
+    }
+    const current = String(st.prompt || "");
+    if (promptRevision(current) !== request.expectedRevision) {
+      throw new Error("the prompt changed after the insertion was prepared; try again");
+    }
+    const fallbackStart = clampPromptOffset(ta.selectionStart, current.length, current.length);
+    const start = clampPromptOffset(request.start, fallbackStart, current.length);
+    const fallbackEnd = clampPromptOffset(ta.selectionEnd, start, current.length);
+    const end = clampPromptOffset(request.end, fallbackEnd, current.length);
+    const from = Math.min(start, end), to = Math.max(start, end);
+    const text = current.slice(0, from) + request.text + current.slice(to);
+    const insertedEnd = from + request.text.length;
+    const selectInserted = request.selection === "inserted";
+    return commitPromptEdit(text, selectInserted ? from : insertedEnd, insertedEnd, request.focus);
+  }
+
+  const promptEditingV1 = Object.freeze({
+    version: 1,
+    getPrompt,
+    setPrompt,
+    insertPrompt,
+  });
+
   return {
     root,
     destroy() {
@@ -6997,7 +7085,10 @@ function buildUI(node) {
     pasteFile(file) { takePaste(file, null); },
     save() { return JSON.stringify(st); },
     get state() { return st; },
-    capabilities: Object.freeze({ referenceCopy: referenceCopyV1 }),
+    capabilities: Object.freeze({
+      referenceCopy: referenceCopyV1,
+      promptEditing: promptEditingV1,
+    }),
   };
 }
 
