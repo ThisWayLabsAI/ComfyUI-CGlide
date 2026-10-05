@@ -4266,12 +4266,45 @@ function buildUI(node) {
     if (!sh) return;
     const live = i === p.idx;
     const s = live ? st : sh.state;
-    if (!s) return;
-    if (s.cont && typeof s.cont === "object") clearSlot(s.cont);
+    if (!clearContinuationState(s)) return;
+    if (live) { render(); stash(); }
+  }
+
+  /* Clear only media the continuation owns. The link is intent and lastOut is
+     the source Render can use to rebuild that intent, so neither belongs here.
+     A hand-picked video in the seam slot is also preserved unless the seam
+     marker proves automation placed it there. */
+  function clearContinuationState(s) {
+    if (!s) return false;
+    let changed = false;
+    if (s.cont && typeof s.cont === "object" && Object.keys(s.cont).length) {
+      clearSlot(s.cont);
+      changed = true;
+    }
     const vids = (s.slots && s.slots.videos) || [];
     const seam = vids[SEAM_REF_SLOT];
-    if (seam && seam.seam) clearSlot(seam);
-    if (live) { render(); stash(); }
+    if (seam && seam.seam) {
+      clearSlot(seam);
+      changed = true;
+    }
+    return changed;
+  }
+
+  function clearRunContinuations(indices) {
+    const p = proj();
+    let cleared = 0, liveChanged = false;
+    indices.forEach((i) => {
+      const sh = p.shots[i];
+      if (!sh) return;
+      const live = i === p.idx;
+      const state = live ? st : sh.state;
+      if (!clearContinuationState(state)) return;
+      cleared++;
+      if (live) liveChanged = true;
+    });
+    if (liveChanged) render();
+    if (cleared) { stash(); commit(); }
+    return cleared;
   }
 
   function toggleLink(i) {
@@ -5311,6 +5344,7 @@ function buildUI(node) {
       run.note || (scopeText(run.scope)
                    + (run.links ? `, ${run.links} link${run.links === 1 ? "" : "s"}` : "")
                    + (run.look ? ", look carried across cuts" : "")
+                   + (run.cleared ? `, ${run.cleared} continue${run.cleared === 1 ? "" : "s"} cleared` : "")
                    + (run.skipped ? `, ${run.skipped} skipped` : ""));
     bShotsLbl.textContent = `Rendering ${run.k + 1}/${run.total}`;
   }
@@ -5354,7 +5388,7 @@ function buildUI(node) {
      run or last week. That is what makes a scope that starts mid-chain work,
      and what lets one link be re-rolled on its own. A skipped clip inside the
      range still hands its old render to the next one. */
-  async function renderAll(scope, alsoLook) {
+  async function renderAll(scope, alsoLook, clearContinues) {
     if (run) return;
     const look = !!alsoLook;
     const p = proj();
@@ -5380,11 +5414,14 @@ function buildUI(node) {
     const contOf = (i) => (i === p.idx ? st.cont : ((p.shots[i].state || {}).cont));
     const orphan = queue.find((i) => i > 0 && p.shots[i].link && !inRun.has(i - 1)
                                      && !p.shots[i - 1].lastOut
-                                     && !((contOf(i) || {}).file));
+                                     && (!!clearContinues || !((contOf(i) || {}).file)));
     if (orphan !== undefined) {
       const a = shotLabel(p.shots[orphan - 1], orphan - 1);
       alert(`H3 Studio: ${shotLabel(p.shots[orphan], orphan)} is linked to ${a}, `
           + `which has no render to continue from yet.\n\n`
+          + (clearContinues
+            ? "Clear continues is enabled, so its existing CONTINUE FROM will not be reused.\n\n"
+            : "")
           + `Widen the scope to include ${a}, or unlink the two.`);
       return;
     }
@@ -5405,11 +5442,16 @@ function buildUI(node) {
     /* Free undo: the project as it stands goes into the same slot New and Open
        use, so Revert in the project panel brings it back. */
     snapProject("before Render");
+    const cleared = clearContinues ? clearRunContinuations(queue) : 0;
+    if (cleared) {
+      console.log(`[H3 Studio] Render: cleared continuation inputs from ${cleared} `
+                + `queued clip${cleared === 1 ? "" : "s"}`);
+    }
     stash();
     const startIdx = p.idx;
     run = { cancel: false, force: false, waiters: [], i: queue[0], k: 0,
             total: queue.length, skipped: range.length - queue.length,
-            scope, look, links, note: "", made: [] };
+            scope, look, links, cleared, note: "", made: [] };
     paintRun();
 
     /* Every long await in the loop goes through here, so a second Stop press has
@@ -6149,6 +6191,7 @@ function buildUI(node) {
        the link on the timeline; this row only says WHICH clips to render. */
     const rfoot = el("div", "gcast-shots-foot run");
     const selScope = el("select", "gcast-runmode");
+    selScope.setAttribute("aria-label", "Render scope");
     SCOPES.forEach(([v, t]) => {
       const o = el("option", null, t); o.value = v; selScope.append(o);
     });
@@ -6172,17 +6215,38 @@ function buildUI(node) {
       + "in the same room. Linked clips never get it: the guide and the seam "
       + "reference already carry them. Uses video slot 1.";
 
+    const labClear = el("label", "gcast-chk");
+    const cbClear = el("input"); cbClear.type = "checkbox";
+    cbClear.checked = node.properties.gcast_run_clear_cont === true;
+    cbClear.disabled = !!run;
+    cbClear.onchange = () => {
+      node.properties.gcast_run_clear_cont = cbClear.checked;
+      paintRunTitle();
+    };
+    labClear.append(cbClear, el("span", null, "clear continues"));
+    labClear.onpointerdown = (e) => e.stopPropagation();
+    labClear.title = "Before rendering, clear CONTINUE FROM and its automation-owned "
+      + "seam reference from the clips this scope will render. Links and recorded "
+      + "outputs are kept, so linked clips are rebuilt during the run. Manual video "
+      + "references and skipped clips are not changed.";
+
     const bRun = el("button", "gcast-btn run", "Render");
     const paintRunTitle = () => {
       if (!p.shots.length) { bRun.title = "Add some clips first"; return; }
       const r = scopeRange(selScope.value, p.idx >= 0 ? p.idx : 0);
       const q = selScope.value === "clip" ? r : r.filter((i) => !p.shots[i].off);
       const nl = q.filter((i) => i > 0 && p.shots[i].link).length;
+      const nc = q.filter((i) => {
+        const s = i === p.idx ? st : p.shots[i].state;
+        const seam = s && s.slots && (s.slots.videos || [])[SEAM_REF_SLOT];
+        return !!((s && s.cont && s.cont.file) || (seam && seam.seam));
+      }).length;
       const first = shotLabel(p.shots[r[0]], r[0]);
       const last = shotLabel(p.shots[r[r.length - 1]], r[r.length - 1]);
       bRun.title = `${q.length} clip${q.length === 1 ? "" : "s"}: `
         + (r.length > 1 ? `${first} \u2192 ${last}` : first)
         + (nl ? `, ${nl} continuing through CONTINUE FROM` : "")
+        + (cbClear.checked && nc ? `, clearing ${nc} existing continue${nc === 1 ? "" : "s"}` : "")
         + (r.length > q.length ? `, ${r.length - q.length} skipped` : "")
         + ". Linked clips continue from their neighbour's last render.";
     };
@@ -6191,9 +6255,9 @@ function buildUI(node) {
     paintRunTitle();
     bRun.disabled = !p.shots.length || !!run;
     bRun.onclick = (e) => { e.stopPropagation(); closeShots();
-                            renderAll(selScope.value, cbLook.checked); };
+                            renderAll(selScope.value, cbLook.checked, cbClear.checked); };
     rfoot.append(el("div", "lbl", "Scope"), el("div", "spacer"), selScope,
-                 labLook, bRun);
+                  labLook, labClear, bRun);
     shotsPanel.append(rfoot);
   }
 
