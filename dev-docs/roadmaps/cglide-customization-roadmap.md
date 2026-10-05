@@ -363,12 +363,14 @@ This is the smallest high-value feature and the best proof that the extension ar
 
 ### Priority 4: Focused Prompt Workspace
 
-- Open prompt editing in a full-window modal with a blurred backdrop.
-- Provide clip navigation and Add Clip in a side rail.
-- Keep reference images, video, and audio accessible in a compact form.
-- Reuse the supported prompt and project capabilities established in earlier milestones.
+- Open prompt editing in a full-window modal with a blurred backdrop. Implemented in the private companion extension.
+- Provide clip navigation, inherited Add Clip, and Blank Clip in a side rail through a narrow version 1 `projectNavigation` capability.
+- Keep reference images, video, and audio accessible as compact active-clip thumbnails.
+- Reuse the supported prompt capability for live edits and camera chips; do not mutate the original textarea or project state from companion code.
+- Provide deterministic MiniMax prompt scaffolding for `subject_definitions`, `summary`, `retention_analysis`, `detailed_description`, `overall_soundscape`, and `non_diegetic_music`.
+- Include an editable `[Shot 1]` starter, and insert only missing sections in canonical order without rewriting existing authored text.
 
-The workspace is a high-value UX target, but it follows the prompt and clip APIs it needs so it does not depend on private closures or brittle simulated clicks.
+The workspace now covers focused editing, navigation, clip creation, compact references, camera assistance, and prompt structure reminders. Opening it does not implicitly create a project; the current editor becomes Clip 1 only when Add Clip is used, matching CGlide's existing behavior. Direct reference-package copy controls inside the workspace remain a follow-up rather than coupling the modal to the existing Copy refs dialog.
 
 ### Priority 5: Script breakdown and coverage-planning MVP
 
@@ -465,10 +467,14 @@ This comes last because it changes the graph contract and likely requires upstre
 
 ### Milestone 4: Focused Prompt Workspace
 
-- [ ] Build the modal shell, backdrop, focus containment, and keyboard behavior.
-- [ ] Add the clip rail, clip switching, and Add Clip.
-- [ ] Add compact image/video/audio reference access.
-- [ ] Integrate prompt chips and reference-package copying.
+- [x] Build the modal shell, blurred backdrop, focus containment, Escape behavior, and focus restoration.
+- [x] Add the clip rail, authoritative clip switching, inherited Add Clip, and Blank Clip.
+- [x] Add compact image/video/audio reference access for the active clip.
+- [x] Integrate camera prompt chips.
+- [x] Add individual MiniMax section starters, a complete missing-section starter, and an initial `[Shot 1]` example.
+- [x] Preserve existing authored sections and deterministically place missing sections in canonical order.
+- [x] Validate no-project opening, live prompt serialization, camera insertion, inherited/blank clip creation, clip switching, Escape, focus restoration, and zero scoped accessibility violations in isolated live ComfyUI.
+- [ ] Add direct reference-package copy controls inside the workspace after the current copy semantics receive user evaluation.
 
 ### Milestone 5: Script breakdown and coverage planning
 
@@ -667,6 +673,9 @@ Record decisions here as the author responds or implementation proceeds.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-05 | Add deterministic MiniMax section starters and an editable `[Shot 1]` example to the Prompt Workspace | Prompt structure is easy to forget; explicit scaffolding provides a reliable starting point without asking a model to rewrite or infer the user's authored prompt |
+| 2026-10-05 | Insert only missing prompt sections and preserve existing section text | Starter actions must be safe on partially authored prompts and must not overwrite carefully written identity, sound, or scene direction |
+| 2026-10-05 | Expose clip listing, switching, and creation through a versioned `projectNavigation` command capability | The workspace needs project navigation, but companion code must not reach into `gcast_project` or reproduce CGlide's stash/inheritance behavior |
 | 2026-10-05 | Expose prompt editing as versioned snapshot/set/insert commands with an opaque revision, while keeping camera vocabulary and UI in the private companion | The seam synchronizes all of CGlide's authoritative prompt representations without exposing mutable state, and the frequently changing UX remains outside the high-conflict upstream file |
 | 2026-10-05 | Make camera chips cursor-scoped and refuse structured insertion outside `detailed_description` | Camera direction is shot/scene intent; silently relocating it from `subject_definitions` or another section would change authored meaning and encourage prompt drift |
 | 2026-10-05 | Ship Clear continues as an opt-in Render setting, off by default on new nodes and remembered after the user selects it | Cleanup changes generation inputs; keeping the choice explicit avoids surprising projects that intentionally reuse a manually prepared continuation |
