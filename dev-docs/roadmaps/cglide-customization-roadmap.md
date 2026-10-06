@@ -488,6 +488,7 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Add clip rename, enable/disable, and predecessor-link controls.
 - [x] Add per-clip resolution and duration with apply-to-selected and apply-to-all actions.
 - [x] Normalize reference-section append boundaries so copied definitions do not gain an extra blank line.
+- [x] Mirror base-editor reference/shot coloring and expose CGlide's authoritative Prompt Check remarks in the workspace.
 - [x] Verify that native New intentionally clears the project list while retaining the current on-screen clip and its references.
 - [ ] Live-validate the reference-copy handoff, enriched rail, and keyboard navigation after the user's active renders finish.
 
@@ -688,6 +689,7 @@ Record decisions here as the author responds or implementation proceeds.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-05 | Reuse CGlide's Prompt Check results and mirror its reference/shot coloring in the workspace | Validation rules stay authoritative in CGlide, while a passive synchronized backdrop preserves normal textarea editing, selection, undo, and accessibility |
 | 2026-10-05 | Keep CGlide's native New behavior unchanged: it clears the project list but retains the current on-screen clip and references | The upstream code explicitly treats the visible clip as the likely first clip of the next project; a different reset policy should be an explicit future choice, not a silent companion override |
 | 2026-10-05 | Extend `projectNavigation` with command-oriented rename, selection batch, link, enabled, and clip-setting operations | The workspace needs project management parity, while CGlide must remain responsible for stash/load, link healing, rendering, persistence, and Revert behavior |
 | 2026-10-05 | Clear queued `lastOut` plus automation-marked seam/look slots when Clear continues is selected | Rerendering should not retain any output-derived state for queued clips; an outside predecessor remains available only when needed to start a mid-chain render |

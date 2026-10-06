@@ -7012,12 +7012,18 @@ function buildUI(node) {
     const text = String(st.prompt || "");
     const start = clampPromptOffset(ta.selectionStart, text.length, text.length);
     const end = clampPromptOffset(ta.selectionEnd, start, text.length);
+    const checks = promptCheck(text, alignFrames(st.length) / FPS).map((row) => Object.freeze({
+      label: String(row.label || ""),
+      text: String(row.text || ""),
+      state: row.state === "warn" ? "warn" : "ok",
+    }));
     return Object.freeze({
       version: 1,
       text,
       selectionStart: Math.min(start, end),
       selectionEnd: Math.max(start, end),
       revision: promptRevision(text),
+      checks: Object.freeze(checks),
     });
   }
 
