@@ -325,9 +325,9 @@ Required behavior:
 
 - Apply to the clips actually queued by the selected Render scope; do not mutate clips outside that queue.
 - Clear each queued clip's `state.cont` data.
-- Also clear the paired video reference only when it carries the `seam` marker; preserve every manually selected video reference.
+- Clear video references only when a `seam` or `carry` marker proves a project render created them; preserve every manually selected video reference.
 - Preserve clip links. A link describes intended continuity and is not stale generated media.
-- Preserve `lastOut`. It is the recorded predecessor output Render uses to rebuild a link, especially when rendering a scope that starts in the middle of a chain.
+- Clear `lastOut` on queued clips so the UI and subsequent operations cannot reuse an old result. Preserve a predecessor outside the queue when it is required to begin a mid-chain run.
 - Run orphan/preflight validation as though stale `CONTINUE FROM` data is unavailable when cleanup is enabled. A linked mid-chain clip must have its predecessor in the queue or a usable predecessor `lastOut`.
 - Take the normal project Revert snapshot before clearing anything.
 - If preflight fails or the user declines a warning, change nothing.
@@ -369,6 +369,10 @@ This is the smallest high-value feature and the best proof that the extension ar
 - Reuse the supported prompt capability for live edits and camera chips; do not mutate the original textarea or project state from companion code.
 - Provide deterministic MiniMax prompt scaffolding for `subject_definitions`, `summary`, `retention_analysis`, `detailed_description`, `overall_soundscape`, and `non_diegetic_music`.
 - Include an editable `[Shot 1]` starter, and insert only missing sections in canonical order without rewriting existing authored text.
+- Share the persistent 10px-20px prompt font preference with the workspace editor.
+- Support checkbox multi-selection (including Shift ranges), batch removal, and block-preserving move up/down operations.
+- Expose rename, enable/disable, link/unlink, resolution, and duration through authoritative project commands rather than direct companion mutations.
+- Apply the active clip's resolution and duration to the active clip, selected clips, or all clips.
 
 The workspace now covers focused editing, navigation, clip creation, compact references, camera assistance, and prompt structure reminders. Opening it does not implicitly create a project; the current editor becomes Clip 1 only when Add Clip is used, matching CGlide's existing behavior. Reference copying reuses the existing atomic dialog instead of duplicating its planning and validation inside the workspace.
 
@@ -448,7 +452,7 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Add an opt-in Clear continues control beside the Render controls, off by default.
 - [x] Make preflight ignore existing continuation media when cleanup is enabled.
 - [x] Reuse one authoritative paired cleanup for `cont` and seam-marked video references.
-- [x] Preserve links, `lastOut`, manual references, clips outside the queue, and skipped clips.
+- [x] Clear queued clips' `cont`, automation-marked seam/look references, and stale `lastOut`; preserve links, manual references, clips outside the queue, and skipped clips.
 - [x] Take one Revert snapshot before cleanup and make no changes when preflight is abandoned.
 - [x] Validate whole-project, chain, and single-clip scopes in an isolated live browser fixture.
 - [ ] Validate the from-here scope in a normal project.
@@ -479,6 +483,12 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Validate no-project opening, live prompt serialization, camera insertion, inherited/blank clip creation, clip switching, Escape, focus restoration, and zero scoped accessibility violations in isolated live ComfyUI.
 - [x] Add direct reference-package copy access with the active clip preselected and return to the workspace after close/apply.
 - [x] Enrich the clip rail with compact reference thumbnails, prompt summaries, and keyboard previous/next navigation.
+- [x] Carry the persistent prompt font-size controls into the workspace.
+- [x] Add arbitrary and Shift-range clip selection with batch remove and move up/down.
+- [x] Add clip rename, enable/disable, and predecessor-link controls.
+- [x] Add per-clip resolution and duration with apply-to-selected and apply-to-all actions.
+- [x] Normalize reference-section append boundaries so copied definitions do not gain an extra blank line.
+- [x] Verify that native New intentionally clears the project list while retaining the current on-screen clip and its references.
 - [ ] Live-validate the reference-copy handoff, enriched rail, and keyboard navigation after the user's active renders finish.
 
 ### Milestone 5: Script breakdown and coverage planning
@@ -678,6 +688,9 @@ Record decisions here as the author responds or implementation proceeds.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-05 | Keep CGlide's native New behavior unchanged: it clears the project list but retains the current on-screen clip and references | The upstream code explicitly treats the visible clip as the likely first clip of the next project; a different reset policy should be an explicit future choice, not a silent companion override |
+| 2026-10-05 | Extend `projectNavigation` with command-oriented rename, selection batch, link, enabled, and clip-setting operations | The workspace needs project management parity, while CGlide must remain responsible for stash/load, link healing, rendering, persistence, and Revert behavior |
+| 2026-10-05 | Clear queued `lastOut` plus automation-marked seam/look slots when Clear continues is selected | Rerendering should not retain any output-derived state for queued clips; an outside predecessor remains available only when needed to start a mid-chain render |
 | 2026-10-05 | Make prompt-structure buttons add missing content or navigate to existing content | The same compact controls can serve as a section outline for long prompts, reducing scrolling without adding another navigation surface |
 | 2026-10-05 | Keep the clip rail visible and enrich it with a reference thumbnail, prompt summary, and Ctrl+PageUp/PageDown navigation | Identifying and changing clips should not require moving between the project list and a distant prompt area |
 | 2026-10-05 | Reuse the existing atomic Copy refs dialog from the workspace and return to the workspace afterward | This removes canvas navigation without duplicating reference-copy planning, preview, validation, or apply semantics |

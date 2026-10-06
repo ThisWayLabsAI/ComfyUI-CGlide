@@ -4270,10 +4270,12 @@ function buildUI(node) {
     if (live) { render(); stash(); }
   }
 
-  /* Clear only media the continuation owns. The link is intent and lastOut is
-     the source Render can use to rebuild that intent, so neither belongs here.
-     A hand-picked video in the seam slot is also preserved unless the seam
-     marker proves automation placed it there. */
+  /* Clear only media a project render created automatically. Links remain as
+     intent, but queued clips discard their recorded output so a rerun cannot
+     accidentally advertise or reuse the previous result. A predecessor
+     outside the queue keeps its lastOut: a mid-chain run may need that one
+     input to start. Hand-picked video references are preserved; only `seam`
+     and `carry` markers prove the run placed a slot. */
   function clearContinuationState(s) {
     if (!s) return false;
     let changed = false;
@@ -4282,10 +4284,11 @@ function buildUI(node) {
       changed = true;
     }
     const vids = (s.slots && s.slots.videos) || [];
-    const seam = vids[SEAM_REF_SLOT];
-    if (seam && seam.seam) {
-      clearSlot(seam);
-      changed = true;
+    for (const slot of vids) {
+      if (slot && (slot.seam || slot.carry)) {
+        clearSlot(slot);
+        changed = true;
+      }
     }
     return changed;
   }
@@ -4298,7 +4301,9 @@ function buildUI(node) {
       if (!sh) return;
       const live = i === p.idx;
       const state = live ? st : sh.state;
-      if (!clearContinuationState(state)) return;
+      let changed = clearContinuationState(state);
+      if (sh.lastOut) { delete sh.lastOut; changed = true; }
+      if (!changed) return;
       cleared++;
       if (live) liveChanged = true;
     });
@@ -6225,10 +6230,10 @@ function buildUI(node) {
     };
     labClear.append(cbClear, el("span", null, "clear continues"));
     labClear.onpointerdown = (e) => e.stopPropagation();
-    labClear.title = "Before rendering, clear CONTINUE FROM and its automation-owned "
-      + "seam reference from the clips this scope will render. Links and recorded "
-      + "outputs are kept, so linked clips are rebuilt during the run. Manual video "
-      + "references and skipped clips are not changed.";
+    labClear.title = "Before rendering, clear generated CONTINUE FROM, seam and look "
+      + "references, and the prior recorded output from every queued clip. Links are "
+      + "kept and rebuilt during the run. Manual references, skipped clips, and an "
+      + "outside predecessor needed to begin a mid-chain run are not changed.";
 
     const bRun = el("button", "gcast-btn run", "Render");
     const paintRunTitle = () => {
@@ -6238,8 +6243,10 @@ function buildUI(node) {
       const nl = q.filter((i) => i > 0 && p.shots[i].link).length;
       const nc = q.filter((i) => {
         const s = i === p.idx ? st : p.shots[i].state;
-        const seam = s && s.slots && (s.slots.videos || [])[SEAM_REF_SLOT];
-        return !!((s && s.cont && s.cont.file) || (seam && seam.seam));
+        const videos = (s && s.slots && s.slots.videos) || [];
+        return !!((s && s.cont && s.cont.file)
+          || videos.some((slot) => slot && (slot.seam || slot.carry))
+          || p.shots[i].lastOut);
       }).length;
       const first = shotLabel(p.shots[r[0]], r[0]);
       const last = shotLabel(p.shots[r[r.length - 1]], r[r.length - 1]);
@@ -6927,6 +6934,8 @@ function buildUI(node) {
           id: String(shot.id || ""),
           index,
           name: shotLabel(shot, index),
+          enabled: !shot.off,
+          linked: index > 0 && !!shot.link,
           revision: referenceCopyRevision(state),
           state: clone(state),
         });
@@ -7101,11 +7110,144 @@ function buildUI(node) {
     return projectWorkspaceSnapshot();
   }
 
+  function projectClipIndices(request, action) {
+    if (!request || request.version !== 1 || !Array.isArray(request.clipIds)) {
+      throw new Error(`invalid ${action} request`);
+    }
+    const ids = new Set(request.clipIds.map((id) => String(id || "")).filter(Boolean));
+    if (!ids.size) throw new Error("select at least one clip");
+    const p = proj();
+    const indices = [];
+    p.shots.forEach((shot, index) => { if (ids.has(String(shot && shot.id || ""))) indices.push(index); });
+    if (indices.length !== ids.size) throw new Error("one or more selected clips no longer exist");
+    return { p, indices, ids };
+  }
+
+  function renameProjectClip(request) {
+    if (!request || request.version !== 1 || typeof request.clipId !== "string"
+        || typeof request.name !== "string") throw new Error("invalid rename-clip request");
+    if (run) throw new Error("clips cannot be renamed while the project is rendering");
+    stash();
+    const p = proj();
+    const index = p.shots.findIndex((shot) => String(shot && shot.id || "") === request.clipId);
+    if (index < 0) throw new Error("the requested clip no longer exists");
+    p.shots[index].name = request.name.trim();
+    commit(); renderShots(); paintTimeline();
+    return projectWorkspaceSnapshot();
+  }
+
+  function enableProjectClips(request) {
+    if (!request || typeof request.enabled !== "boolean") throw new Error("invalid enable-clips request");
+    if (run) throw new Error("clips cannot be enabled or disabled while the project is rendering");
+    stash();
+    const { p, indices } = projectClipIndices(request, "enable-clips");
+    indices.forEach((index) => { p.shots[index].off = !request.enabled; });
+    commit(); renderShots(); paintTimeline();
+    return projectWorkspaceSnapshot();
+  }
+
+  function linkProjectClip(request) {
+    if (!request || request.version !== 1 || typeof request.clipId !== "string"
+        || typeof request.linked !== "boolean") throw new Error("invalid link-clip request");
+    if (run) throw new Error("clips cannot be linked while the project is rendering");
+    stash();
+    const p = proj();
+    const index = p.shots.findIndex((shot) => String(shot && shot.id || "") === request.clipId);
+    if (index < 1) throw new Error(index < 0 ? "the requested clip no longer exists" : "the first clip cannot be linked");
+    p.shots[index].link = request.linked;
+    if (!request.linked) dropContinuation(index);
+    commit(); renderShots(); paintTimeline();
+    return projectWorkspaceSnapshot();
+  }
+
+  function moveProjectClips(request) {
+    if (!request || (request.direction !== -1 && request.direction !== 1)) {
+      throw new Error("invalid move-clips request");
+    }
+    if (run) throw new Error("clips cannot be moved while the project is rendering");
+    stash();
+    const { p, ids } = projectClipIndices(request, "move-clips");
+    const before = linkPreds(p);
+    const active = p.shots[p.idx] || null;
+    if (request.direction < 0) {
+      for (let i = 1; i < p.shots.length; i++) {
+        if (ids.has(String(p.shots[i].id)) && !ids.has(String(p.shots[i - 1].id))) {
+          [p.shots[i - 1], p.shots[i]] = [p.shots[i], p.shots[i - 1]];
+        }
+      }
+    } else {
+      for (let i = p.shots.length - 2; i >= 0; i--) {
+        if (ids.has(String(p.shots[i].id)) && !ids.has(String(p.shots[i + 1].id))) {
+          [p.shots[i], p.shots[i + 1]] = [p.shots[i + 1], p.shots[i]];
+        }
+      }
+    }
+    p.idx = active ? p.shots.indexOf(active) : -1;
+    shotsFocus = Math.max(0, p.idx);
+    healLinks(p, before);
+    commit(); paintShotsBtn(); paintPresetName(); renderShots(); paintTimeline();
+    return projectWorkspaceSnapshot();
+  }
+
+  function deleteProjectClips(request) {
+    if (run) throw new Error("clips cannot be deleted while the project is rendering");
+    stash();
+    const { p, indices, ids } = projectClipIndices(request, "delete-clips");
+    snapProject(`before deleting ${indices.length} clip${indices.length === 1 ? "" : "s"}`);
+    const before = linkPreds(p);
+    const active = p.shots[p.idx] || null;
+    const first = indices[0];
+    p.shots = p.shots.filter((shot) => !ids.has(String(shot && shot.id || "")));
+    if (!p.shots.length) p.idx = -1;
+    else {
+      const surviving = active ? p.shots.indexOf(active) : -1;
+      p.idx = surviving >= 0 ? surviving : Math.min(first, p.shots.length - 1);
+      load(JSON.stringify(p.shots[p.idx].state));
+    }
+    healLinks(p, before);
+    commit(); paintShotsBtn(); paintPresetName(); renderShots(); paintTimeline();
+    return projectWorkspaceSnapshot();
+  }
+
+  function updateProjectClipSettings(request) {
+    if (!request || request.version !== 1) throw new Error("invalid clip-settings request");
+    if (run) throw new Error("clip settings cannot change while the project is rendering");
+    const rawWidth = Number(request.width), rawHeight = Number(request.height);
+    const rawLength = Number(request.length);
+    if (!Number.isFinite(rawWidth) || !Number.isFinite(rawHeight) || !Number.isFinite(rawLength)) {
+      throw new Error("enter a numeric resolution and duration");
+    }
+    const width = snap(rawWidth);
+    const height = snap(rawHeight);
+    const length = alignFrames(rawLength);
+    if (!Number.isFinite(length)
+        || width * height > MAX_PIXELS + 1) {
+      throw new Error("resolution exceeds CGlide's canvas limit");
+    }
+    stash();
+    const { p, indices } = projectClipIndices(request, "clip-settings");
+    if (indices.length > 1) snapProject("clip settings applied to multiple clips");
+    indices.forEach((index) => {
+      const next = parseInitial(JSON.stringify(p.shots[index].state || {}));
+      next.width = width; next.height = height; next.length = length;
+      p.shots[index].state = next;
+      if (index === p.idx) load(JSON.stringify(next));
+    });
+    commit(); paintShotsBtn(); paintPresetName(); renderShots(); paintTimeline();
+    return projectWorkspaceSnapshot();
+  }
+
   const projectNavigationV1 = Object.freeze({
     version: 1,
     snapshot: projectWorkspaceSnapshot,
     selectClip: selectProjectClip,
     addClip: addProjectClip,
+    renameClip: renameProjectClip,
+    setClipsEnabled: enableProjectClips,
+    setClipLinked: linkProjectClip,
+    moveClips: moveProjectClips,
+    deleteClips: deleteProjectClips,
+    updateClipSettings: updateProjectClipSettings,
   });
 
   return {
