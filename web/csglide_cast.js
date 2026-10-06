@@ -7080,6 +7080,59 @@ function buildUI(node) {
     insertPrompt,
   });
 
+  /* Authoritative active-clip reference editing for compact companion UIs.
+   * Files still travel through CGlide's upload/probe path; consumers choose a
+   * slot but never receive a mutable slot object or recreate media metadata. */
+  function referenceSlot(kind, index) {
+    if (kind === "first" || kind === "last") {
+      if (st.mode !== "fl2va") throw new Error(`${kind} is only available in First/Last mode`);
+      return { slot: st.slots[kind], mediaKind: "image", token: `@${kind}` };
+    }
+    const limits = { image: MAX_IMAGES, video: MAX_VIDEOS, audio: MAX_AUDIOS };
+    if (!(kind in limits) || !Number.isInteger(index) || index < 0 || index >= limits[kind]) {
+      throw new Error("invalid reference slot");
+    }
+    if (st.mode !== "ref2va") throw new Error("image, video, and audio references require Reference to Video mode");
+    return {
+      slot: st.slots[`${kind}s`][index],
+      mediaKind: kind,
+      token: `@${kind}${index + 1}`,
+    };
+  }
+
+  async function setWorkspaceReference(request) {
+    if (!request || request.version !== 1 || typeof request.kind !== "string"
+        || !request.file || typeof request.file.name !== "string") {
+      throw new Error("invalid set-reference request");
+    }
+    if (run) throw new Error("references cannot change while the project is rendering");
+    const ref = referenceSlot(request.kind, Number(request.index || 0));
+    const detected = fileKind(request.file);
+    if (detected && detected !== ref.mediaKind) {
+      throw new Error(`that file is ${detected}, not ${ref.mediaKind}`);
+    }
+    await assign(ref.slot, request.file, ref.mediaKind, ref.token);
+    stash();
+    return projectWorkspaceSnapshot();
+  }
+
+  function clearWorkspaceReference(request) {
+    if (!request || request.version !== 1 || typeof request.kind !== "string") {
+      throw new Error("invalid clear-reference request");
+    }
+    if (run) throw new Error("references cannot change while the project is rendering");
+    const ref = referenceSlot(request.kind, Number(request.index || 0));
+    clearSlot(ref.slot);
+    render(); commit(); stash();
+    return projectWorkspaceSnapshot();
+  }
+
+  const referenceEditingV1 = Object.freeze({
+    version: 1,
+    set: setWorkspaceReference,
+    clear: clearWorkspaceReference,
+  });
+
   /* Project navigation for focused editors. The full clip states are cloned
    * for read-only presentation (prompt text and compact reference previews),
    * while every mutation delegates to the same switch/add functions used by
@@ -7305,6 +7358,7 @@ function buildUI(node) {
     get state() { return st; },
     capabilities: Object.freeze({
       referenceCopy: referenceCopyV1,
+      referenceEditing: referenceEditingV1,
       promptEditing: promptEditingV1,
       projectNavigation: projectNavigationV1,
     }),

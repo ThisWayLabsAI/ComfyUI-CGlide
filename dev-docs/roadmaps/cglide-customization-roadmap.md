@@ -280,6 +280,8 @@ The prompt-writing experience should gain a set of incremental UI improvements:
 - A future full-window Prompt Workspace with a blurred backdrop
 - A clip rail for navigating, selecting, and adding clips within that workspace
 - Compact access to reference images, video, and audio while writing
+- Add, replace, and clear the full native reference-slot capacity from a collapsible, vertically resizable bottom drawer
+- A header copy control for sending the active prompt to the clipboard without selecting the editor contents
 - Prompt chips and reference-copy actions in the same focused workspace
 
 Font size and layout density are browser/user preferences, not project state. The Canvas card shares its row with Length and Reference Refinement, so the useful compact behavior collapses the entire row rather than hiding only one card.
@@ -476,6 +478,9 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Build the modal shell, blurred backdrop, focus containment, Escape behavior, and focus restoration.
 - [x] Add the clip rail, authoritative clip switching, inherited Add Clip, and Blank Clip.
 - [x] Add compact image/video/audio reference access for the active clip.
+- [x] Expose all nine image, three video, and three audio slots (or First/Last), including empty add targets, in a collapsible and vertically resizable bottom drawer.
+- [x] Route reference add/replace/clear commands through a narrow core capability that reuses CGlide's native upload, media probe, render, commit, and stash behavior.
+- [x] Add a standard header copy icon that copies the active prompt without altering it.
 - [x] Integrate camera prompt chips.
 - [x] Add individual MiniMax section starters, a complete missing-section starter, and an initial `[Shot 1]` example.
 - [x] Preserve existing authored sections and deterministically place missing sections in canonical order.
@@ -694,6 +699,9 @@ Record decisions here as the author responds or implementation proceeds.
 | Date | Decision | Reason |
 |---|---|---|
 | 2026-10-05 | Consolidate workspace chrome around the header, clip drawer, and bottom reference/settings band | The prompt is the primary work surface; project controls should remain available without consuming a permanent row above it |
+| 2026-10-05 | Put the complete native reference rack in a collapsible, vertically resizable bottom drawer | Empty add targets make the workspace a complete editing surface, while collapse and resize keep prompt height under the user's control |
+| 2026-10-05 | Expose reference mutation as slot-level commands that reuse CGlide's authoritative media path | The companion may choose and display slots but must not duplicate uploads, duration probing, project persistence, or mutate private state |
+| 2026-10-05 | Copy the active prompt from a header icon without rewriting or selecting its text | Clipboard export is a frequent editing action and should not disturb prompt content, selection, or undo history |
 | 2026-10-05 | Use native textarea editing history for workspace-generated insertions | Camera chips and structure helpers should behave like typing, including Ctrl+Z, instead of resetting the browser's undo stack through direct value assignment |
 | 2026-10-05 | Reuse CGlide's Prompt Check results and mirror its reference/shot coloring in the workspace | Validation rules stay authoritative in CGlide, while a passive synchronized backdrop preserves normal textarea editing, selection, undo, and accessibility |
 | 2026-10-05 | Keep CGlide's native New behavior unchanged: it clears the project list but retains the current on-screen clip and references | The upstream code explicitly treats the visible clip as the likely first clip of the next project; a different reset policy should be an explicit future choice, not a silent companion override |
