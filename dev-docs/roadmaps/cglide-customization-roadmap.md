@@ -496,6 +496,8 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Add arbitrary and Shift-range clip selection with batch removal and drag-and-drop reordering.
 - [x] Add clip rename, enable/disable, and predecessor-link controls.
 - [x] Add per-clip resolution and duration with apply-to-selected and apply-to-all actions.
+- [x] Present duration editing in decimal seconds, convert to CGlide's aligned frame count internally, and baseline-align the resolution, duration, and action controls.
+- [x] Distinguish enabled clips with a green inclusion dot while retaining the existing disabled treatment.
 - [x] Normalize reference-section append boundaries so copied definitions do not gain an extra blank line.
 - [x] Mirror base-editor reference/shot coloring and expose CGlide's authoritative Prompt Check remarks in the workspace.
 - [x] Reclaim editor height by moving clip naming/font controls into the header and clip settings beside the bottom reference strip.
@@ -708,6 +710,8 @@ Record decisions here as the author responds or implementation proceeds.
 | 2026-10-05 | Put the clip drawer toggle directly on its divider and leave it on the modal edge while collapsed | The control stays beside the thing it affects and remains reachable without consuming distant header space |
 | 2026-10-05 | Make the workspace grid own the reference drawer's default and resized height | An independently sized child could overflow the final grid track and be clipped by the modal until a manual resize forced recalculation |
 | 2026-10-05 | Use the same edge-chevron interaction for both workspace drawers | Drawer controls stay spatially attached to the surfaces they affect and no longer consume header space |
+| 2026-10-05 | Edit workspace duration in decimal seconds while preserving CGlide's frame alignment internally | Seconds match the user's planning language; the authoritative project command still normalizes the value to a valid `17k+5` frame length |
+| 2026-10-05 | Color the enabled clip dot green and leave disabled clips subdued | The active render state becomes readable at a glance without changing CGlide's enable/disable semantics |
 | 2026-10-05 | Expose reference mutation as slot-level commands that reuse CGlide's authoritative media path | The companion may choose and display slots but must not duplicate uploads, duration probing, project persistence, or mutate private state |
 | 2026-10-05 | Copy the active prompt from a header icon without rewriting or selecting its text | Clipboard export is a frequent editing action and should not disturb prompt content, selection, or undo history |
 | 2026-10-05 | Use native textarea editing history for workspace-generated insertions | Camera chips and structure helpers should behave like typing, including Ctrl+Z, instead of resetting the browser's undo stack through direct value assignment |
