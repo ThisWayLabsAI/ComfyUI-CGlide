@@ -6435,41 +6435,9 @@ function buildUI(node) {
 
   /* ---- @ autocomplete ---------------------------------------------- */
 
-  const ac = el("div", "gcast-ac");
-  ac.style.display = "none";
-  ac.addEventListener("pointerdown", (e) => e.preventDefault());   // keep textarea focus
-  ac.style.position = "fixed";
-  document.body.append(ac);   // outside the node, so opening it can't reflow the layout
-
-  let acItems = [], acIdx = 0, acStart = -1;
+  const autocompleteControllers = new Set();
   let chipSig = "";
   const chipEls = new Map();
-
-  /* caret position, measured with a style-cloned mirror */
-  function caretXY() {
-    const cs = getComputedStyle(ta);
-    const mirror = el("div");
-    const copy = ["fontFamily", "fontSize", "fontWeight", "lineHeight", "letterSpacing",
-      "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
-      "borderTopWidth", "borderLeftWidth", "textTransform", "wordSpacing"];
-    copy.forEach((k) => { mirror.style[k] = cs[k]; });
-    Object.assign(mirror.style, {
-      position: "absolute", visibility: "hidden", whiteSpace: "pre-wrap",
-      wordWrap: "break-word", top: "0", left: "0",
-      width: ta.clientWidth + "px", boxSizing: "border-box",
-    });
-    Object.assign(mirror.style, { left: "-99999px", top: "0" });
-    const head = document.createTextNode(ta.value.slice(0, ta.selectionStart));
-    const mark = el("span", null, "\u200b");
-    mirror.append(head, mark);
-    document.body.append(mirror);
-    const x = mark.offsetLeft, y = mark.offsetTop;
-    mirror.remove();
-    const box = ta.getBoundingClientRect();
-    return { x: box.left + x, y: box.top + y - ta.scrollTop + parseFloat(cs.lineHeight || 18) + 4 };
-  }
-
-  function closeAC() { ac.style.display = "none"; acItems = []; acStart = -1; acSignature = ""; }
 
   /* The @ list also offers the next shot marker.
    *
@@ -6488,9 +6456,9 @@ function buildUI(node) {
     return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
   }
 
-  function nextShotMarker() {
+  function nextShotMarker(prompt) {
     const total = Math.max(0.001, (alignFrames(st.length) - 1) / FPS);
-    const found = parseShots(st.prompt || "", total);
+    const found = parseShots(prompt || "", total);
     const n = found.length + 1;
     if (n === 1) return { text: "[Shot 1] ", token: "[Shot 1]", tag: "starts the clip" };
     const timed = found.filter((x) => !x.untimed).map((x) => x.start);
@@ -6500,108 +6468,163 @@ function buildUI(node) {
     return { text: `[Shot ${n}] At ${mmss(t)}, `, token: `[Shot ${n}]`, tag: `At ${mmss(t)}` };
   }
 
-  function openAC(query, start) {
-    const { rows } = presentation(st);
-    const q = query.toLowerCase();
-    acItems = rows
-      .map((r) => ({ token: tokenOf(r), tag: r.tag, from: r.from, kind: r.kind }))
-      .filter((o) => o.token && (!q || o.token.slice(1).toLowerCase().includes(q)));
+  function attachPromptAutocomplete(target, applyEdit, zIndex = null) {
+    const ac = el("div", "gcast-ac");
+    ac.style.display = "none";
+    ac.addEventListener("pointerdown", (e) => e.preventDefault());
+    ac.addEventListener("wheel", (e) => e.stopPropagation());
+    ac.style.position = "fixed";
+    if (Number.isFinite(zIndex)) ac.style.zIndex = String(zIndex);
+    document.body.append(ac);
 
-    /* always last in the list - it is an action, not a reference */
-    if (!q || "shot marker cut".includes(q)) {
-      const mk = nextShotMarker();
-      acItems.push({ special: "shot", insert: mk.text, token: mk.token, tag: mk.tag, kind: "shot" });
+    let acItems = [], acIdx = 0, acStart = -1, acSignature = "";
+
+    function caretXY() {
+      const cs = getComputedStyle(target);
+      const mirror = el("div");
+      const copy = ["fontFamily", "fontSize", "fontWeight", "lineHeight", "letterSpacing",
+        "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+        "borderTopWidth", "borderLeftWidth", "textTransform", "wordSpacing"];
+      copy.forEach((k) => { mirror.style[k] = cs[k]; });
+      Object.assign(mirror.style, {
+        position: "absolute", visibility: "hidden", whiteSpace: "pre-wrap",
+        wordWrap: "break-word", left: "-99999px", top: "0",
+        width: target.clientWidth + "px", boxSizing: "border-box",
+      });
+      const head = document.createTextNode(target.value.slice(0, target.selectionStart));
+      const mark = el("span", null, "\u200b");
+      mirror.append(head, mark);
+      document.body.append(mirror);
+      const x = mark.offsetLeft, y = mark.offsetTop;
+      mirror.remove();
+      const box = target.getBoundingClientRect();
+      return { x: box.left + x, y: box.top + y - target.scrollTop + parseFloat(cs.lineHeight || 18) + 4 };
     }
-    acStart = start;
-    acIdx = 0;
-    if (!acItems.length) { closeAC(); return; }
-    ac.dataset.mode = st.mode;
-    drawAC();
-    const { x, y } = caretXY();
-    ac.style.display = "";
-    const w = ac.offsetWidth || 220, h = ac.offsetHeight || 200;
-    ac.style.left = Math.max(6, Math.min(x, window.innerWidth - w - 8)) + "px";
-    ac.style.top = (y + h > window.innerHeight - 8 ? Math.max(6, y - h - 26) : y) + "px";
-  }
 
-  let acSignature = "";
-
-  function markAC() {
-    Array.from(ac.children).forEach((b, i) => {
-      if (b.tagName === "BUTTON") b.setAttribute("aria-selected", String(i === acIdx));
-    });
-  }
-
-  function drawAC() {
-    const sig = acItems.map((o) => o.token + o.tag).join("|");
-    if (sig === acSignature && ac.children.length) { markAC(); return; }
-    acSignature = sig;
-
-    ac.replaceChildren();
-    if (!acItems.length) {
-      ac.append(el("div", "none", "No references filled yet"));
-      return;
+    function close() {
+      ac.style.display = "none"; acItems = []; acStart = -1; acSignature = "";
     }
-    acItems.forEach((o, i) => {
-      const b = el("button");
-      const file = fileForToken(o.token);
-      if (o.special) b.append(el("span", "glyph mark", "\u2702"));
-      else if (o.kind === "image" && file) { const im = el("img"); im.src = viewURL(file); b.append(im); }
-      else if (o.kind === "video" && file) { const v = el("video"); v.src = viewURL(file); v.muted = true; v.preload = "metadata"; b.append(v); }
-      else b.append(el("span", "glyph", "\u266a"));
-      b.append(el("span", null, o.token), el("span", "tag", o.tag));
-      b.addEventListener("mouseenter", () => { acIdx = i; markAC(); });
-      b.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); acceptAC(i); });
-      ac.append(b);
+
+    function mark() {
+      Array.from(ac.children).forEach((button, index) => {
+        if (button.tagName === "BUTTON") button.setAttribute("aria-selected", String(index === acIdx));
+      });
+    }
+
+    function draw() {
+      const signature = acItems.map((item) => item.token + item.tag).join("|");
+      if (signature === acSignature && ac.children.length) { mark(); return; }
+      acSignature = signature;
+      ac.replaceChildren();
+      acItems.forEach((item, index) => {
+        const button = el("button");
+        const file = fileForToken(item.token);
+        if (item.special) button.append(el("span", "glyph mark", "\u2702"));
+        else if (item.kind === "image" && file) { const image = el("img"); image.src = viewURL(file); button.append(image); }
+        else if (item.kind === "video" && file) { const video = el("video"); video.src = viewURL(file); video.muted = true; video.preload = "metadata"; button.append(video); }
+        else button.append(el("span", "glyph", "\u266a"));
+        button.append(el("span", null, item.token), el("span", "tag", item.tag));
+        button.addEventListener("mouseenter", () => { acIdx = index; mark(); });
+        button.addEventListener("pointerdown", (event) => {
+          event.preventDefault(); event.stopPropagation(); accept(index);
+        });
+        ac.append(button);
+      });
+      mark();
+    }
+
+    function open(query, start) {
+      const { rows } = presentation(st);
+      const normalized = query.toLowerCase();
+      acItems = rows
+        .map((row) => ({ token: tokenOf(row), tag: row.tag, from: row.from, kind: row.kind }))
+        .filter((item) => item.token && (!normalized || item.token.slice(1).toLowerCase().includes(normalized)));
+      if (!normalized || "shot marker cut".includes(normalized)) {
+        const marker = nextShotMarker(target.value);
+        acItems.push({ special: "shot", insert: marker.text, token: marker.token, tag: marker.tag, kind: "shot" });
+      }
+      acStart = start; acIdx = 0;
+      if (!acItems.length) { close(); return; }
+      ac.dataset.mode = st.mode;
+      draw();
+      const { x, y } = caretXY();
+      ac.style.display = "";
+      const width = ac.offsetWidth || 220, height = ac.offsetHeight || 200;
+      ac.style.left = Math.max(6, Math.min(x, window.innerWidth - width - 8)) + "px";
+      ac.style.top = (y + height > window.innerHeight - 8 ? Math.max(6, y - height - 26) : y) + "px";
+    }
+
+    function accept(index) {
+      const item = acItems[index];
+      if (!item) { close(); return; }
+      const caret = target.selectionStart;
+      const before = target.value.slice(0, acStart);
+      const text = item.special
+        ? ((before.length && !/\n[ \t]*$/.test(before) ? "\n" : "") + item.insert)
+        : item.token + " ";
+      const selection = acStart + text.length;
+      applyEdit(Object.freeze({
+        start: acStart, end: caret, text, selectionStart: selection,
+        selectionEnd: selection, special: item.special || null,
+      }));
+      close();
+    }
+
+    function update() {
+      const caret = target.selectionStart;
+      const match = /@([A-Za-z0-9]*)$/.exec(target.value.slice(0, caret));
+      if (!match) { close(); return; }
+      open(match[1], caret - match[0].length);
+    }
+
+    function onKeydown(event) {
+      if (ac.style.display === "none") return;
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault(); event.stopPropagation();
+        acIdx = (acIdx + (event.key === "ArrowDown" ? 1 : -1) + acItems.length) % Math.max(1, acItems.length);
+        mark();
+        ac.children[acIdx]?.scrollIntoView?.({ block: "nearest" });
+      } else if (event.key === "Enter" || event.key === "Tab") {
+        if (!acItems.length) return;
+        event.preventDefault(); event.stopPropagation(); accept(acIdx);
+      } else if (event.key === "Escape") {
+        event.preventDefault(); event.stopPropagation(); close();
+      }
+    }
+    const onBlur = () => setTimeout(close, 120);
+    target.addEventListener("input", update);
+    target.addEventListener("click", update);
+    target.addEventListener("keydown", onKeydown);
+    target.addEventListener("blur", onBlur);
+
+    const controller = Object.freeze({
+      close,
+      isOpen: () => ac.style.display !== "none",
+      destroy() {
+        close(); ac.remove();
+        target.removeEventListener("input", update);
+        target.removeEventListener("click", update);
+        target.removeEventListener("keydown", onKeydown);
+        target.removeEventListener("blur", onBlur);
+        autocompleteControllers.delete(controller);
+      },
     });
-    markAC();
+    autocompleteControllers.add(controller);
+    return controller;
   }
 
-  function acceptAC(i) {
-    const o = acItems[i];
-    if (!o) { closeAC(); return; }
-    const caret = ta.selectionStart;
-    const before = ta.value.slice(0, acStart);
-
-    /* a shot marker starts a line; a reference tag goes wherever you are */
-    const insert = o.special
-      ? ((before.length && !/\n[ \t]*$/.test(before) ? "\n" : "") + o.insert)
-      : o.token + " ";
-
-    ta.value = before + insert + ta.value.slice(caret);
-    const pos = acStart + insert.length;
-    ta.setSelectionRange(pos, pos);
+  attachPromptAutocomplete(ta, (edit) => {
+    ta.value = ta.value.slice(0, edit.start) + edit.text + ta.value.slice(edit.end);
+    ta.setSelectionRange(edit.selectionStart, edit.selectionEnd);
     ta.focus();
     st.prompt = ta.value;
-    closeAC(); renderTags(); commit();
-    if (o.special) renderCheck(); else syncHL();
-  }
-
-  function maybeAC() {
-    const caret = ta.selectionStart;
-    const m = /@([A-Za-z0-9]*)$/.exec(ta.value.slice(0, caret));
-    if (!m) { closeAC(); return; }
-    openAC(m[1], caret - m[0].length);
-  }
-
-  ta.addEventListener("keydown", (e) => {
-    if (ac.style.display === "none") return;
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault(); e.stopPropagation();
-      acIdx = (acIdx + (e.key === "ArrowDown" ? 1 : -1) + acItems.length) % Math.max(1, acItems.length);
-      markAC();
-      ac.children[acIdx]?.scrollIntoView?.({ block: "nearest" });
-    } else if (e.key === "Enter" || e.key === "Tab") {
-      if (!acItems.length) return;
-      e.preventDefault(); e.stopPropagation();
-      acceptAC(acIdx);
-    } else if (e.key === "Escape") {
-      e.preventDefault(); e.stopPropagation();
-      closeAC();
-    }
+    renderTags(); commit();
+    if (edit.special) renderCheck(); else syncHL();
   });
-  ta.addEventListener("blur", () => setTimeout(closeAC, 120));
-  ta.addEventListener("click", () => maybeAC());
+
+  function closePromptAutocompletes() {
+    for (const controller of autocompleteControllers) controller.close();
+  }
 
   function insert(token) {
     const s = ta.selectionStart ?? ta.value.length;
@@ -6701,7 +6724,7 @@ function buildUI(node) {
     render(); commit();
   };
 
-  ta.addEventListener("input", () => { st.prompt = ta.value; renderTags(); renderCheck(); maybeAC(); commit(); });
+  ta.addEventListener("input", () => { st.prompt = ta.value; renderTags(); renderCheck(); commit(); });
   ta.addEventListener("pointerdown", (e) => e.stopPropagation());
   /* The DOM widget sits over the canvas and eats wheel and drag. Rather than
    * disabling pointer events (which risks reaching a shared container and
@@ -6712,7 +6735,7 @@ function buildUI(node) {
     ".gcast-slot, .gcast-media, .gcast-chip, .gcast-track, .gcast-thumb, .gcast-wav";
 
   root.addEventListener("wheel", (e) => {
-    closeAC();
+    closePromptAutocompletes();
     /* Anything that can scroll itself keeps the wheel -- but only while it
      * actually has somewhere to go. Returning early is not enough on its own:
      * without stopPropagation the event carries on to the canvas handler and
@@ -6884,8 +6907,7 @@ function buildUI(node) {
   };
   window.addEventListener("paste", onPaste, true);
 
-  ac.addEventListener("wheel", (e) => e.stopPropagation());
-  root.addEventListener("scroll", () => closeAC(), true);
+  root.addEventListener("scroll", closePromptAutocompletes, true);
 
   function load(raw) { st = parseInitial(raw); ta.value = st.prompt; render(); }
 
@@ -7030,7 +7052,7 @@ function buildUI(node) {
   function commitPromptEdit(text, selectionStart, selectionEnd, focus) {
     ta.value = text;
     st.prompt = text;
-    closeAC();
+    closePromptAutocompletes();
     renderTags();
     renderCheck();
     commit();
@@ -7078,6 +7100,26 @@ function buildUI(node) {
     getPrompt,
     setPrompt,
     insertPrompt,
+  });
+
+  /* The controller owns the same popup, reference filtering, thumbnails,
+   * shot-marker suggestions, caret positioning, and keyboard behavior used by
+   * the native prompt. A companion supplies only its textarea and the
+   * authoritative edit callback, so autocomplete rules cannot drift. */
+  function attachWorkspaceAutocomplete(request) {
+    if (!request || request.version !== 1
+        || !(request.textarea instanceof HTMLTextAreaElement)
+        || typeof request.applyEdit !== "function") {
+      throw new Error("invalid prompt-autocomplete request");
+    }
+    const zIndex = request.zIndex == null ? null : Number(request.zIndex);
+    if (zIndex != null && !Number.isFinite(zIndex)) throw new Error("invalid autocomplete z-index");
+    return attachPromptAutocomplete(request.textarea, request.applyEdit, zIndex);
+  }
+
+  const promptAutocompleteV1 = Object.freeze({
+    version: 1,
+    attach: attachWorkspaceAutocomplete,
   });
 
   /* Authoritative active-clip reference editing for compact companion UIs.
@@ -7339,7 +7381,8 @@ function buildUI(node) {
   return {
     root,
     destroy() {
-      ac.remove();
+      for (const controller of Array.from(autocompleteControllers)) controller.destroy();
+      root.removeEventListener("scroll", closePromptAutocompletes, true);
       /* a window listener per node instance would outlive the node */
       window.removeEventListener("paste", onPaste, true);
       window.removeEventListener("wheel", onPromptWheel, true);
@@ -7359,6 +7402,7 @@ function buildUI(node) {
     capabilities: Object.freeze({
       referenceCopy: referenceCopyV1,
       referenceEditing: referenceEditingV1,
+      promptAutocomplete: promptAutocompleteV1,
       promptEditing: promptEditingV1,
       projectNavigation: projectNavigationV1,
     }),

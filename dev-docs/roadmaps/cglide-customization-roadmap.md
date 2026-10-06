@@ -487,6 +487,7 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Route reference add/replace/clear commands through a narrow core capability that reuses CGlide's native upload, media probe, render, commit, and stash behavior.
 - [x] Add a standard header copy icon that copies the active prompt without altering it.
 - [x] Default the workspace to H3 Studio's native prompt font and provide one browser-local font selection shared by both editors.
+- [x] Reuse H3 Studio's native `@` autocomplete controller in the workspace, including reference thumbnails, filtering, keyboard selection, and next-shot insertion.
 - [x] Integrate camera prompt chips.
 - [x] Add individual MiniMax section starters, a complete missing-section starter, and an initial `[Shot 1]` example.
 - [x] Preserve existing authored sections and deterministically place missing sections in canonical order.
@@ -584,6 +585,10 @@ Important regions:
   - Whitelists persisted clip fields. New fields vanish unless added here.
 - `buildUI(node)`
   - Owns almost all private UI functions and state closures.
+- `attachPromptAutocomplete()` and `nextShotMarker()`
+  - Own the shared native `@` suggestion controller used by both the main prompt and companion workspaces.
+- The version 1 `promptAutocomplete` capability
+  - Attaches that controller to an external textarea without exposing mutable project state or duplicating CGlide's suggestion rules.
 - The object returned at the end of `buildUI()`
   - Current externally reachable surface: `root`, `destroy`, `load`, `pasteFile`, `save`, and `state`.
 - `stateFromFile()`, `doLoad()`, and project load/import functions
@@ -706,6 +711,7 @@ Record decisions here as the author responds or implementation proceeds.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-05 | Extract CGlide's native prompt autocomplete into one attachable controller and expose it through a versioned capability | The workspace should receive the same reference tokens, thumbnails, next-shot suggestion, filtering, caret placement, and keyboard behavior without maintaining a second autocomplete implementation |
 | 2026-10-05 | Consolidate workspace chrome around the header, clip drawer, and bottom reference/settings band | The prompt is the primary work surface; project controls should remain available without consuming a permanent row above it |
 | 2026-10-05 | Put the complete native reference rack in a collapsible, vertically resizable bottom drawer | Empty add targets make the workspace a complete editing surface, while collapse and resize keep prompt height under the user's control |
 | 2026-10-05 | Use explicit image, video, and audio selectors in the reference drawer | Nine image slots otherwise push video and audio off-screen, making supported add operations appear to be missing |
