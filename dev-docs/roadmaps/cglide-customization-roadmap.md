@@ -479,6 +479,8 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Add the clip rail, authoritative clip switching, inherited Add Clip, and Blank Clip.
 - [x] Add compact image/video/audio reference access for the active clip.
 - [x] Expose all nine image, three video, and three audio slots (or First/Last), including empty add targets, in a collapsible and vertically resizable bottom drawer.
+- [x] Keep image, video, and audio add targets directly reachable through reference-type selectors with filled/capacity counts.
+- [x] Make the clip rail a true side drawer with an in-drawer collapse control and horizontal resize grip.
 - [x] Route reference add/replace/clear commands through a narrow core capability that reuses CGlide's native upload, media probe, render, commit, and stash behavior.
 - [x] Add a standard header copy icon that copies the active prompt without altering it.
 - [x] Integrate camera prompt chips.
@@ -700,6 +702,8 @@ Record decisions here as the author responds or implementation proceeds.
 |---|---|---|
 | 2026-10-05 | Consolidate workspace chrome around the header, clip drawer, and bottom reference/settings band | The prompt is the primary work surface; project controls should remain available without consuming a permanent row above it |
 | 2026-10-05 | Put the complete native reference rack in a collapsible, vertically resizable bottom drawer | Empty add targets make the workspace a complete editing surface, while collapse and resize keep prompt height under the user's control |
+| 2026-10-05 | Use explicit image, video, and audio selectors in the reference drawer | Nine image slots otherwise push video and audio off-screen, making supported add operations appear to be missing |
+| 2026-10-05 | Give the clip rail its own collapse control and horizontal resize grip | A side drawer should be controllable at its edge just as the bottom reference drawer is, without consuming permanent header space while open |
 | 2026-10-05 | Expose reference mutation as slot-level commands that reuse CGlide's authoritative media path | The companion may choose and display slots but must not duplicate uploads, duration probing, project persistence, or mutate private state |
 | 2026-10-05 | Copy the active prompt from a header icon without rewriting or selecting its text | Clipboard export is a frequent editing action and should not disturb prompt content, selection, or undo history |
 | 2026-10-05 | Use native textarea editing history for workspace-generated insertions | Camera chips and structure helpers should behave like typing, including Ctrl+Z, instead of resetting the browser's undo stack through direct value assignment |
