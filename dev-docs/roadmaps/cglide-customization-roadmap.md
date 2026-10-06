@@ -495,6 +495,11 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Preserve existing authored sections and deterministically place missing sections in canonical order.
 - [x] Make individual section controls jump to existing content and make the shot control advance from the highest detected `[Shot N]`.
 - [x] Add custom and audio-reference dialogue starters that use H3 speaker IDs, language-tagged `<d>` content, and cursor-scoped insertion in `detailed_description`.
+- [x] Add a compact reference-template preview menu for identity/wardrobe, subject motion, camera motion, and environments/props, using populated reference slots and an explicit target shot.
+- [x] Share corrected truck-versus-tracking camera vocabulary and a compact extended movement menu across both editors.
+- [x] Consolidate cursor-helper insertion paths and include visible select controls in the workspace keyboard focus loop.
+- [ ] Extend reference templates with audio source definitions, language/speaker selection, and an editable retention policy after user evaluation.
+- [ ] Evaluate mode-specific starters for `integrated_multimodal_description` rather than using full-reference scaffolding in every mode.
 - [x] Validate no-project opening, live prompt serialization, camera insertion, inherited/blank clip creation, clip switching, Escape, focus restoration, and zero scoped accessibility violations in isolated live ComfyUI.
 - [x] Add direct reference-package copy access with the active clip preselected and return to the workspace after close/apply.
 - [x] Enrich the clip rail with compact reference thumbnails, prompt summaries, and keyboard previous/next navigation.
@@ -741,6 +746,10 @@ Record decisions here as the author responds or implementation proceeds.
 | 2026-10-05 | Reuse the existing atomic Copy refs dialog from the workspace and return to the workspace afterward | This removes canvas navigation without duplicating reference-copy planning, preview, validation, or apply semantics |
 | 2026-10-05 | Add deterministic MiniMax section starters and an editable `[Shot 1]` example to the Prompt Workspace | Prompt structure is easy to forget; explicit scaffolding provides a reliable starting point without asking a model to rewrite or infer the user's authored prompt |
 | 2026-10-06 | Add separate H3 custom-dialogue and audio-reference-dialogue starters inside `detailed_description` | Both forms need stable speaker IDs and exact `<d>` content, while an audio reference should guide voice timbre and delivery without silently copying its spoken words |
+| 2026-10-06 | Put reference packages in one compact preview menu with populated media selectors and an explicit target shot | Definitions, retention notes, and shot instructions need to stay consistent without crowding the prompt toolbar; preview is required before insertion and existing text is preserved |
+| 2026-10-06 | Default reference templates to the next unused subject ID and allow explicitly extending an existing subject | Avoids silently redefining Subject 1 in every template and makes reference roles an intentional user choice |
+| 2026-10-06 | Correct truck-versus-tracking language, share extended camera vocabulary, and remove dialogue from the soundscape starter | H3 distinguishes sideways camera translation from subject tracking, and puts spoken dialogue in the shot timeline |
+| 2026-10-06 | Keep this review focused on companion prompt helpers and keyboard behavior | No additional core seam is needed; audio-package expansion, mode-specific scaffolding, and broader workspace decomposition remain follow-ups rather than merge-sensitive changes |
 | 2026-10-06 | Make the workspace shot chip advance from the highest detected shot and insert `[Shot N] at 00:00.000:` | Number-aware insertion avoids duplicate shot labels, and a visible zero timestamp is a deliberate editable placeholder, including for Shot 1 |
 | 2026-10-05 | Insert only missing prompt sections and preserve existing section text | Starter actions must be safe on partially authored prompts and must not overwrite carefully written identity, sound, or scene direction |
 | 2026-10-05 | Expose clip listing, switching, and creation through a versioned `projectNavigation` command capability | The workspace needs project navigation, but companion code must not reach into `gcast_project` or reproduce CGlide's stash/inheritance behavior |
