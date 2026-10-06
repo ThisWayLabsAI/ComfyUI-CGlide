@@ -482,6 +482,7 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Keep image, video, and audio add targets directly reachable through reference-type selectors with filled/capacity counts.
 - [x] Make the clip rail a true side drawer with a centered divider chevron and horizontal resize grip.
 - [x] Reserve reference-drawer height in the workspace grid so its initial controls and token labels cannot overflow below the modal.
+- [x] Replace the reference header's Show/Hide button with a centered top-edge chevron that remains available while fully collapsed.
 - [x] Route reference add/replace/clear commands through a narrow core capability that reuses CGlide's native upload, media probe, render, commit, and stash behavior.
 - [x] Add a standard header copy icon that copies the active prompt without altering it.
 - [x] Integrate camera prompt chips.
@@ -706,6 +707,7 @@ Record decisions here as the author responds or implementation proceeds.
 | 2026-10-05 | Use explicit image, video, and audio selectors in the reference drawer | Nine image slots otherwise push video and audio off-screen, making supported add operations appear to be missing |
 | 2026-10-05 | Put the clip drawer toggle directly on its divider and leave it on the modal edge while collapsed | The control stays beside the thing it affects and remains reachable without consuming distant header space |
 | 2026-10-05 | Make the workspace grid own the reference drawer's default and resized height | An independently sized child could overflow the final grid track and be clipped by the modal until a manual resize forced recalculation |
+| 2026-10-05 | Use the same edge-chevron interaction for both workspace drawers | Drawer controls stay spatially attached to the surfaces they affect and no longer consume header space |
 | 2026-10-05 | Expose reference mutation as slot-level commands that reuse CGlide's authoritative media path | The companion may choose and display slots but must not duplicate uploads, duration probing, project persistence, or mutate private state |
 | 2026-10-05 | Copy the active prompt from a header icon without rewriting or selecting its text | Clipboard export is a frequent editing action and should not disturb prompt content, selection, or undo history |
 | 2026-10-05 | Use native textarea editing history for workspace-generated insertions | Camera chips and structure helpers should behave like typing, including Ctrl+Z, instead of resetting the browser's undo stack through direct value assignment |
