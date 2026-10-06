@@ -498,8 +498,13 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Add a compact reference-template preview menu for identity/wardrobe, subject motion, camera motion, and environments/props, using populated reference slots and an explicit target shot.
 - [x] Share corrected truck-versus-tracking camera vocabulary and a compact extended movement menu across both editors.
 - [x] Consolidate cursor-helper insertion paths and include visible select controls in the workspace keyboard focus loop.
-- [ ] Extend reference templates with audio source definitions, language/speaker selection, and an editable retention policy after user evaluation.
-- [ ] Evaluate mode-specific starters for `integrated_multimodal_description` rather than using full-reference scaffolding in every mode.
+- [x] Extend the menu with audio source definitions, exact dialogue/language fields, speaker binding, voiceover, ambience/effects, music-style reference, and explicit complete-versus-layer signal reuse.
+- [x] Include standalone audio and enabled reference-video soundtracks without guessing raw `<Audio N>` ordinals.
+- [x] Tailor starter sections and frame alignment to Omni versus First/Last mode and the active clip's filled frame slots; preserve authored formats and preambles.
+- [x] Support camera, dialogue, and shot insertion in both timeline formats, including inline section headers.
+- [x] Validate all five starter profiles, audio form previews, selected-shot/source/speaker binding, prompt persistence, native undo, and base-mode camera insertion in an isolated browser; pass all 37 model tests and JavaScript syntax checks.
+- [ ] Extend mode detection to graph-connected first/last images through an appropriate read-only capability; current profiles use populated active-clip slots only.
+- [ ] Consider an explicit previewed conversion/replacement action for old alignment instructions and timeline formats; current starters deliberately preserve authored content.
 - [x] Validate no-project opening, live prompt serialization, camera insertion, inherited/blank clip creation, clip switching, Escape, focus restoration, and zero scoped accessibility violations in isolated live ComfyUI.
 - [x] Add direct reference-package copy access with the active clip preselected and return to the workspace after close/apply.
 - [x] Enrich the clip rail with compact reference thumbnails, prompt summaries, and keyboard previous/next navigation.
@@ -750,6 +755,11 @@ Record decisions here as the author responds or implementation proceeds.
 | 2026-10-06 | Default reference templates to the next unused subject ID and allow explicitly extending an existing subject | Avoids silently redefining Subject 1 in every template and makes reference roles an intentional user choice |
 | 2026-10-06 | Correct truck-versus-tracking language, share extended camera vocabulary, and remove dialogue from the soundscape starter | H3 distinguishes sideways camera translation from subject tracking, and puts spoken dialogue in the shot timeline |
 | 2026-10-06 | Keep this review focused on companion prompt helpers and keyboard behavior | No additional core seam is needed; audio-package expansion, mode-specific scaffolding, and broader workspace decomposition remain follow-ups rather than merge-sensitive changes |
+| 2026-10-06 | Add full audio packages to the existing compact menu and make Audio-ref dialogue a shortcut to that form | Hard-coding `@audio1` cannot cover different slots, video soundtracks, exact dialogue, language, or stable speaker bindings; preview shows the linked definitions, retention notes, and timeline/audio instructions |
+| 2026-10-06 | Preserve exact spoken words and keep speaker IDs out of audio retention notes | H3 uses speaker IDs in definitions and actual vocal events; retention describes the audio relationship rather than assigning a voice |
+| 2026-10-06 | Choose three base-mode sections or six reference-mode sections from the active mode, with frame-slot-specific opening instructions | First/Last mode covers text-only, first-only, last-only, and first-plus-last cases; audio and visual reference packages remain confined to Omni mode |
+| 2026-10-06 | Preserve existing opening instructions and whichever timeline field is already authored | Adding missing scaffolding should not silently rewrite an older prompt; notify the user to review frame anchors and timing instead of guessing a conversion |
+| 2026-10-06 | Share section parsing across starter and camera helpers, supporting both timeline field names and inline headers | Prevents mode drift where the starter creates a valid base-mode prompt but camera/dialogue tools refuse to edit it |
 | 2026-10-06 | Make the workspace shot chip advance from the highest detected shot and insert `[Shot N] at 00:00.000:` | Number-aware insertion avoids duplicate shot labels, and a visible zero timestamp is a deliberate editable placeholder, including for Shot 1 |
 | 2026-10-05 | Insert only missing prompt sections and preserve existing section text | Starter actions must be safe on partially authored prompts and must not overwrite carefully written identity, sound, or scene direction |
 | 2026-10-05 | Expose clip listing, switching, and creation through a versioned `projectNavigation` command capability | The workspace needs project navigation, but companion code must not reach into `gcast_project` or reproduce CGlide's stash/inheritance behavior |
