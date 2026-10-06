@@ -7421,8 +7421,33 @@ function buildUI(node) {
     return projectWorkspaceSnapshot();
   }
 
+  /* One immutable catalog feeds CGlide's settings controls and focused
+   * companion editors. Consumers can present the choices differently, but
+   * ratio ladders, native/draft labels, duration values, and frame alignment
+   * remain authoritative here instead of drifting into a second table. */
+  const projectClipSettingsV1 = Object.freeze({
+    version: 1,
+    ratios: Object.freeze(RATIOS.map((ratio) => Object.freeze({
+      label: ratio.label,
+      note: `${ratio.w} x ${ratio.h}`,
+      sizes: Object.freeze(ratio.sizes.map((size, index) => Object.freeze({
+        width: size.w,
+        height: size.h,
+        label: `${size.w} x ${size.h}`,
+        note: index === 0 ? "native" : (size.w * size.h <= 384 * 640 ? "draft" : ""),
+      }))),
+    }))),
+    durations: Object.freeze(LENGTH_PRESETS.map((frames) => Object.freeze({
+      frames,
+      seconds: frames / FPS,
+      label: fmtSecs(frames / FPS),
+      note: `${frames} f`,
+    }))),
+  });
+
   const projectNavigationV1 = Object.freeze({
     version: 1,
+    clipSettings: projectClipSettingsV1,
     snapshot: projectWorkspaceSnapshot,
     selectClip: selectProjectClip,
     addClip: addProjectClip,

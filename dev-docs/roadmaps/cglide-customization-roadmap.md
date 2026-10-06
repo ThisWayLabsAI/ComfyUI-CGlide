@@ -500,6 +500,7 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Add clip rename, enable/disable, and predecessor-link controls.
 - [x] Add per-clip resolution and duration with apply-to-selected and apply-to-all actions.
 - [x] Present duration editing in decimal seconds, convert to CGlide's aligned frame count internally, and baseline-align the resolution, duration, and action controls.
+- [x] Share CGlide's authoritative ratio, resolution, and duration preset catalog with the workspace instead of maintaining duplicate option tables.
 - [x] Distinguish enabled clips with a green inclusion dot while retaining the existing disabled treatment.
 - [x] Normalize reference-section append boundaries so copied definitions do not gain an extra blank line.
 - [x] Mirror base-editor reference/shot coloring and expose CGlide's authoritative Prompt Check remarks in the workspace.
@@ -589,6 +590,8 @@ Important regions:
   - Own the shared native `@` suggestion controller used by both the main prompt and companion workspaces.
 - The version 1 `promptAutocomplete` capability
   - Attaches that controller to an external textarea without exposing mutable project state or duplicating CGlide's suggestion rules.
+- The version 1 `projectNavigation.clipSettings` catalog
+  - Exposes immutable ratio ladders and aligned duration presets used by compact companion editors.
 - The object returned at the end of `buildUI()`
   - Current externally reachable surface: `root`, `destroy`, `load`, `pasteFile`, `save`, and `state`.
 - `stateFromFile()`, `doLoad()`, and project load/import functions
@@ -711,6 +714,8 @@ Record decisions here as the author responds or implementation proceeds.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-05 | Expose ratio, resolution, and duration choices as an immutable `projectNavigation.clipSettings` catalog | Focused editors can use CGlide's exact native ladders and frame-aligned durations without copying preset tables or mutating settings outside authoritative commands |
+| 2026-10-05 | Merge upstream v1.3.0 into Dev immediately after a clean merge simulation | The release changes the shared `web/csglide_cast.js` hotspot; integrating while the merge is clean limits future conflict accumulation and preserves the public `main` mirror |
 | 2026-10-05 | Extract CGlide's native prompt autocomplete into one attachable controller and expose it through a versioned capability | The workspace should receive the same reference tokens, thumbnails, next-shot suggestion, filtering, caret placement, and keyboard behavior without maintaining a second autocomplete implementation |
 | 2026-10-05 | Consolidate workspace chrome around the header, clip drawer, and bottom reference/settings band | The prompt is the primary work surface; project controls should remain available without consuming a permanent row above it |
 | 2026-10-05 | Put the complete native reference rack in a collapsible, vertically resizable bottom drawer | Empty add targets make the workspace a complete editing surface, while collapse and resize keep prompt height under the user's control |
