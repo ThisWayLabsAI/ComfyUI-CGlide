@@ -371,7 +371,9 @@ This is the smallest high-value feature and the best proof that the extension ar
 - Keep reference images, video, and audio accessible as compact active-clip thumbnails.
 - Reuse the supported prompt capability for live edits and camera chips; do not mutate the original textarea or project state from companion code.
 - Provide deterministic MiniMax prompt scaffolding for `subject_definitions`, `summary`, `retention_analysis`, `detailed_description`, `overall_soundscape`, and `non_diegetic_music`.
-- Include an editable `[Shot 1]` starter, and insert only missing sections in canonical order without rewriting existing authored text.
+- Include an editable `[Shot 1] at 00:00.000:` starter, and insert only missing sections in canonical order without rewriting existing authored text.
+- Advance the shot chip to one higher than the greatest shot number detected in `detailed_description`, while leaving `00:00.000` as an explicit user-edited timestamp placeholder.
+- Provide cursor-scoped custom-dialogue and audio-reference-dialogue starters in `detailed_description`. Both use a stable speaker ID and `<d>` block; the audio variant references `@audio1` for voice timbre and delivery without inheriting the reference recording's words.
 - Share the persistent 10px-20px prompt font preference with the workspace editor.
 - Support checkbox multi-selection (including Shift ranges), batch removal, and block-preserving drag-and-drop reordering.
 - Expose rename, enable/disable, link/unlink, resolution, and duration through authoritative project commands rather than direct companion mutations.
@@ -489,9 +491,10 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Default the workspace to H3 Studio's native prompt font and provide one browser-local font selection shared by both editors.
 - [x] Reuse H3 Studio's native `@` autocomplete controller in the workspace, including reference thumbnails, filtering, keyboard selection, and next-shot insertion.
 - [x] Integrate camera prompt chips.
-- [x] Add individual MiniMax section starters, a complete missing-section starter, and an initial `[Shot 1]` example.
+- [x] Add individual MiniMax section starters, a complete missing-section starter, and an initial `[Shot 1] at 00:00.000:` example.
 - [x] Preserve existing authored sections and deterministically place missing sections in canonical order.
-- [x] Make individual section and Shot 1 controls jump to existing content instead of becoming dead-end duplicate warnings.
+- [x] Make individual section controls jump to existing content and make the shot control advance from the highest detected `[Shot N]`.
+- [x] Add custom and audio-reference dialogue starters that use H3 speaker IDs, language-tagged `<d>` content, and cursor-scoped insertion in `detailed_description`.
 - [x] Validate no-project opening, live prompt serialization, camera insertion, inherited/blank clip creation, clip switching, Escape, focus restoration, and zero scoped accessibility violations in isolated live ComfyUI.
 - [x] Add direct reference-package copy access with the active clip preselected and return to the workspace after close/apply.
 - [x] Enrich the clip rail with compact reference thumbnails, prompt summaries, and keyboard previous/next navigation.
@@ -737,6 +740,8 @@ Record decisions here as the author responds or implementation proceeds.
 | 2026-10-05 | Keep the clip rail visible and enrich it with a reference thumbnail, prompt summary, and Ctrl+PageUp/PageDown navigation | Identifying and changing clips should not require moving between the project list and a distant prompt area |
 | 2026-10-05 | Reuse the existing atomic Copy refs dialog from the workspace and return to the workspace afterward | This removes canvas navigation without duplicating reference-copy planning, preview, validation, or apply semantics |
 | 2026-10-05 | Add deterministic MiniMax section starters and an editable `[Shot 1]` example to the Prompt Workspace | Prompt structure is easy to forget; explicit scaffolding provides a reliable starting point without asking a model to rewrite or infer the user's authored prompt |
+| 2026-10-06 | Add separate H3 custom-dialogue and audio-reference-dialogue starters inside `detailed_description` | Both forms need stable speaker IDs and exact `<d>` content, while an audio reference should guide voice timbre and delivery without silently copying its spoken words |
+| 2026-10-06 | Make the workspace shot chip advance from the highest detected shot and insert `[Shot N] at 00:00.000:` | Number-aware insertion avoids duplicate shot labels, and a visible zero timestamp is a deliberate editable placeholder, including for Shot 1 |
 | 2026-10-05 | Insert only missing prompt sections and preserve existing section text | Starter actions must be safe on partially authored prompts and must not overwrite carefully written identity, sound, or scene direction |
 | 2026-10-05 | Expose clip listing, switching, and creation through a versioned `projectNavigation` command capability | The workspace needs project navigation, but companion code must not reach into `gcast_project` or reproduce CGlide's stash/inheritance behavior |
 | 2026-10-05 | Expose prompt editing as versioned snapshot/set/insert commands with an opaque revision, while keeping camera vocabulary and UI in the private companion | The seam synchronizes all of CGlide's authoritative prompt representations without exposing mutable state, and the frequently changing UX remains outside the high-conflict upstream file |
