@@ -276,6 +276,7 @@ An initial MVP can stop at reviewable shot-plan JSON and prompt output. Direct c
 The prompt-writing experience should gain a set of incremental UI improvements:
 
 - A persistent prompt font-size preference
+- A persistent prompt-font preference shared by the native editor and Prompt Workspace, defaulting to H3's own font
 - A compact/collapsed settings row so the prompt begins closer to clip navigation and receives more vertical room
 - A future full-window Prompt Workspace with a blurred backdrop
 - A clip rail for navigating, selecting, and adding clips within that workspace
@@ -485,6 +486,7 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Replace the reference header's Show/Hide button with a centered top-edge chevron that remains available while fully collapsed.
 - [x] Route reference add/replace/clear commands through a narrow core capability that reuses CGlide's native upload, media probe, render, commit, and stash behavior.
 - [x] Add a standard header copy icon that copies the active prompt without altering it.
+- [x] Default the workspace to H3 Studio's native prompt font and provide one browser-local font selection shared by both editors.
 - [x] Integrate camera prompt chips.
 - [x] Add individual MiniMax section starters, a complete missing-section starter, and an initial `[Shot 1]` example.
 - [x] Preserve existing authored sections and deterministically place missing sections in canonical order.
@@ -712,6 +714,7 @@ Record decisions here as the author responds or implementation proceeds.
 | 2026-10-05 | Use the same edge-chevron interaction for both workspace drawers | Drawer controls stay spatially attached to the surfaces they affect and no longer consume header space |
 | 2026-10-05 | Edit workspace duration in decimal seconds while preserving CGlide's frame alignment internally | Seconds match the user's planning language; the authoritative project command still normalizes the value to a valid `17k+5` frame length |
 | 2026-10-05 | Color the enabled clip dot green and leave disabled clips subdued | The active render state becomes readable at a glance without changing CGlide's enable/disable semantics |
+| 2026-10-05 | Share one prompt-font preference across H3 Studio and the Prompt Workspace, defaulting to H3's native sans-serif stack | The focused editor should not change typography unexpectedly, while users who prefer mono, serif, or humanist text can keep both surfaces consistent |
 | 2026-10-05 | Expose reference mutation as slot-level commands that reuse CGlide's authoritative media path | The companion may choose and display slots but must not duplicate uploads, duration probing, project persistence, or mutate private state |
 | 2026-10-05 | Copy the active prompt from a header icon without rewriting or selecting its text | Clipboard export is a frequent editing action and should not disturb prompt content, selection, or undo history |
 | 2026-10-05 | Use native textarea editing history for workspace-generated insertions | Camera chips and structure helpers should behave like typing, including Ctrl+Z, instead of resetting the browser's undo stack through direct value assignment |
