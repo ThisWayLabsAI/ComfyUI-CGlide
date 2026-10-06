@@ -7195,6 +7195,32 @@ function buildUI(node) {
     return projectWorkspaceSnapshot();
   }
 
+  function reorderProjectClips(request) {
+    if (!request || (request.beforeClipId !== null && typeof request.beforeClipId !== "string")) {
+      throw new Error("invalid reorder-clips request");
+    }
+    if (run) throw new Error("clips cannot be reordered while the project is rendering");
+    stash();
+    const { p, ids } = projectClipIndices(request, "reorder-clips");
+    if (request.beforeClipId !== null && ids.has(request.beforeClipId)) {
+      return projectWorkspaceSnapshot();
+    }
+    const before = linkPreds(p);
+    const active = p.shots[p.idx] || null;
+    const moving = p.shots.filter((shot) => ids.has(String(shot && shot.id || "")));
+    const remaining = p.shots.filter((shot) => !ids.has(String(shot && shot.id || "")));
+    const at = request.beforeClipId === null
+      ? remaining.length
+      : remaining.findIndex((shot) => String(shot && shot.id || "") === request.beforeClipId);
+    if (at < 0) throw new Error("the drop target no longer exists");
+    p.shots = remaining.slice(0, at).concat(moving, remaining.slice(at));
+    p.idx = active ? p.shots.indexOf(active) : -1;
+    shotsFocus = Math.max(0, p.idx);
+    healLinks(p, before);
+    commit(); paintShotsBtn(); paintPresetName(); renderShots(); paintTimeline();
+    return projectWorkspaceSnapshot();
+  }
+
   function deleteProjectClips(request) {
     if (run) throw new Error("clips cannot be deleted while the project is rendering");
     stash();
@@ -7252,6 +7278,7 @@ function buildUI(node) {
     setClipsEnabled: enableProjectClips,
     setClipLinked: linkProjectClip,
     moveClips: moveProjectClips,
+    reorderClips: reorderProjectClips,
     deleteClips: deleteProjectClips,
     updateClipSettings: updateProjectClipSettings,
   });

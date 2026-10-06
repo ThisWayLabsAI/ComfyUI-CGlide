@@ -370,7 +370,7 @@ This is the smallest high-value feature and the best proof that the extension ar
 - Provide deterministic MiniMax prompt scaffolding for `subject_definitions`, `summary`, `retention_analysis`, `detailed_description`, `overall_soundscape`, and `non_diegetic_music`.
 - Include an editable `[Shot 1]` starter, and insert only missing sections in canonical order without rewriting existing authored text.
 - Share the persistent 10px-20px prompt font preference with the workspace editor.
-- Support checkbox multi-selection (including Shift ranges), batch removal, and block-preserving move up/down operations.
+- Support checkbox multi-selection (including Shift ranges), batch removal, and block-preserving drag-and-drop reordering.
 - Expose rename, enable/disable, link/unlink, resolution, and duration through authoritative project commands rather than direct companion mutations.
 - Apply the active clip's resolution and duration to the active clip, selected clips, or all clips.
 
@@ -484,11 +484,15 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Add direct reference-package copy access with the active clip preselected and return to the workspace after close/apply.
 - [x] Enrich the clip rail with compact reference thumbnails, prompt summaries, and keyboard previous/next navigation.
 - [x] Carry the persistent prompt font-size controls into the workspace.
-- [x] Add arbitrary and Shift-range clip selection with batch remove and move up/down.
+- [x] Add arbitrary and Shift-range clip selection with batch removal and drag-and-drop reordering.
 - [x] Add clip rename, enable/disable, and predecessor-link controls.
 - [x] Add per-clip resolution and duration with apply-to-selected and apply-to-all actions.
 - [x] Normalize reference-section append boundaries so copied definitions do not gain an extra blank line.
 - [x] Mirror base-editor reference/shot coloring and expose CGlide's authoritative Prompt Check remarks in the workspace.
+- [x] Reclaim editor height by moving clip naming/font controls into the header and clip settings beside the bottom reference strip.
+- [x] Replace move buttons with drag-and-drop reordering for one clip or the current multi-selection.
+- [x] Add a collapsible left clip drawer and a prompt-only expanded workspace mode.
+- [x] Preserve native textarea undo for camera and prompt-structure insertions.
 - [x] Verify that native New intentionally clears the project list while retaining the current on-screen clip and its references.
 - [ ] Live-validate the reference-copy handoff, enriched rail, and keyboard navigation after the user's active renders finish.
 
@@ -689,6 +693,8 @@ Record decisions here as the author responds or implementation proceeds.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-05 | Consolidate workspace chrome around the header, clip drawer, and bottom reference/settings band | The prompt is the primary work surface; project controls should remain available without consuming a permanent row above it |
+| 2026-10-05 | Use native textarea editing history for workspace-generated insertions | Camera chips and structure helpers should behave like typing, including Ctrl+Z, instead of resetting the browser's undo stack through direct value assignment |
 | 2026-10-05 | Reuse CGlide's Prompt Check results and mirror its reference/shot coloring in the workspace | Validation rules stay authoritative in CGlide, while a passive synchronized backdrop preserves normal textarea editing, selection, undo, and accessibility |
 | 2026-10-05 | Keep CGlide's native New behavior unchanged: it clears the project list but retains the current on-screen clip and references | The upstream code explicitly treats the visible clip as the likely first clip of the next project; a different reset policy should be an explicit future choice, not a silent companion override |
 | 2026-10-05 | Extend `projectNavigation` with command-oriented rename, selection batch, link, enabled, and clip-setting operations | The workspace needs project management parity, while CGlide must remain responsible for stash/load, link healing, rendering, persistence, and Revert behavior |
