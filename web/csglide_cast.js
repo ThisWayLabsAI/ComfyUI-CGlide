@@ -5793,20 +5793,34 @@ function buildUI(node) {
    * project is that the shot you are looking at is the first one of it, so it
    * is kept and the next Add makes it Shot 1. "Blank" still gives an empty
    * node when that is what you want. */
-  function newProject() {
+  function newProject(clean = false) {
+    if (run) throw new Error("a new project cannot start while the project is rendering");
     const p = proj();
-    if (p.shots.length) {
+    if (p.shots.length || clean) {
       const n = p.shots.length;
       const ok = confirm(
         `Close ${p.name || "this project"} and its ${n} clip${n > 1 ? "s" : ""}?\n\n` +
-        "The clip on screen is kept. Anything you have not written to a project file is gone.");
-      if (!ok) return;
+        (clean
+          ? "Clear the on-screen prompt, all reference slots, and continuation media? Generation settings are kept. Revert restores the previous content."
+          : "The clip on screen is kept. Anything you have not written to a project file is gone."));
+      if (!ok) return false;
     }
+    stash();
+    // A clean reset must also back up an unlisted on-screen clip.
+    if (clean) seedFromScreen(p);
     /* The list goes, the copy stays: Revert is the way back. */
     snapProject("before New");
     node.properties.gcast_project = { name: "", shots: [], idx: -1 };
     projHandle = null; projLabel = "";
+    if (clean) {
+      const next = clone(st);
+      next.prompt = "";
+      next.slots = blankState().slots;
+      next.cont = {};
+      load(JSON.stringify(next));
+    }
     commit(); paintShotsBtn(); paintPresetName(); renderShots();
+    return true;
   }
 
   /* A packed project: one zip, every shot, media inside, dedup shared across
@@ -6229,7 +6243,16 @@ function buildUI(node) {
     bBlank.onclick = (e) => { e.stopPropagation(); addShot(true); };
     bImport.onclick = (e) => { e.stopPropagation(); importShot(); };
     bPRevert.onclick = (e) => { e.stopPropagation(); revertProject(); };
-    bPNew.onclick = (e) => { e.stopPropagation(); newProject(); };
+    bPNew.onclick = (e) => {
+      e.stopPropagation();
+      // Optional presentation hook; core still owns confirmation and reset.
+      const request = new CustomEvent("cglide:project-new", {
+        cancelable: true, detail: Object.freeze({ apiVersion: 1, component: "cast" }),
+      });
+      if (root.dispatchEvent(request)) {
+        try { newProject(); } catch (error) { alert(error.message || String(error)); }
+      }
+    };
     bPSave.onclick = (e) => { e.stopPropagation(); saveProject(false); };
     bPSaveAs.onclick = (e) => { e.stopPropagation(); saveProject(true); };
     bPPack.onclick = (e) => { e.stopPropagation(); packProject(); };
@@ -7458,6 +7481,12 @@ function buildUI(node) {
     reorderClips: reorderProjectClips,
     deleteClips: deleteProjectClips,
     updateClipSettings: updateProjectClipSettings,
+    newProject(request) {
+      if (!request || request.version !== 1 || typeof request.clean !== "boolean") {
+        throw new Error("invalid new-project request");
+      }
+      return newProject(request.clean) ? projectWorkspaceSnapshot() : null;
+    },
   });
 
   return {
