@@ -2741,6 +2741,11 @@ function buildUI(node) {
 
     const paint = () => {
       if (!dur) return;
+      if (timeInputs) {
+        timeInputs.start.value = slot.start.toFixed(3);
+        timeInputs.end.value = slot.end.toFixed(3);
+        timeInputs.duration.value = (slot.end - slot.start).toFixed(3);
+      }
       const a = (slot.start / dur) * 100, b = (slot.end / dur) * 100;
       span.style.left = a + "%"; span.style.width = Math.max(0, b - a) + "%";
       hA.style.left = a + "%"; hB.style.left = b + "%";
@@ -2764,6 +2769,37 @@ function buildUI(node) {
         used.style.left = ((slot.start + capFrames / FPS) / dur) * 100 + "%";
       } else used.style.display = "none";
     };
+    let timeInputs = null;
+    if (!tailOnly && dur) {
+      const fields = el("div", "gcast-times");
+      fields.style.flexWrap = "wrap";
+      timeInputs = {};
+      for (const [key, text] of [["start", "Start (s)"], ["end", "End (s)"], ["duration", "Duration (s)"]]) {
+        const label = el("label", null, text);
+        const input = el("input");
+        input.type = "number"; input.min = "0"; input.max = String(dur); input.step = "0.001";
+        input.style.width = "76px";
+        input.setAttribute("aria-label", `${label.textContent} ${kindLabel()}`);
+        timeInputs[key] = input;
+        input.addEventListener("pointerdown", (e) => e.stopPropagation());
+        input.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Enter") input.blur(); });
+        input.addEventListener("input", () => input.setCustomValidity(""));
+        input.addEventListener("change", () => {
+          const value = input.value.trim() === "" ? NaN : Number(input.value);
+          const start = key === "start" ? value : slot.start;
+          const end = key === "end" ? value : key === "duration" ? start + value : slot.end;
+          if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > dur || end <= start) {
+            input.setCustomValidity("Enter a valid range within the source duration, with end after start.");
+            input.reportValidity(); return;
+          }
+          slot.start = start; slot.end = end;
+          paint(); seekPreview(start); commit();
+        });
+        label.append(input); fields.append(label);
+      }
+      wrap.append(fields);
+    }
+    function kindLabel() { return isVideo ? "video reference" : "audio reference"; }
     paint();
 
     /* Park the video on a given time so the thumbnail shows the frame you are
@@ -7450,6 +7486,18 @@ function buildUI(node) {
    * remain authoritative here instead of drifting into a second table. */
   const projectClipSettingsV1 = Object.freeze({
     version: 1,
+    framesForSegment(seconds, maximumSeconds) {
+      if (!Number.isFinite(seconds) || !Number.isFinite(maximumSeconds) || seconds < 5 / FPS || maximumSeconds + 1e-8 < seconds
+          || !Number.isSafeInteger(Math.ceil(maximumSeconds * FPS)) || maximumSeconds * FPS > Number.MAX_SAFE_INTEGER - 17) {
+        throw new Error("A segment must allow at least 5 frames (0.209 seconds) within its generation limit.");
+      }
+      let cap = Math.floor(maximumSeconds * FPS + 1e-8);
+      while (cap % 17 !== 5) cap--;
+      const frames = Math.min(cap, alignFrames(Math.ceil(seconds * FPS - 1e-8)));
+      let referenceFrames = Math.min(frames, Math.round(seconds * FPS) + 1);
+      while (referenceFrames % 17 !== 5) referenceFrames--;
+      return Object.freeze({ frames, seconds: frames / FPS, spanSeconds: (frames - 1) / FPS, referenceFrames });
+    },
     ratios: Object.freeze(RATIOS.map((ratio) => Object.freeze({
       label: ratio.label,
       note: `${ratio.w} x ${ratio.h}`,
@@ -7481,6 +7529,39 @@ function buildUI(node) {
     reorderClips: reorderProjectClips,
     deleteClips: deleteProjectClips,
     updateClipSettings: updateProjectClipSettings,
+    appendClips(request) {
+      if (!request || request.version !== 1 || !Array.isArray(request.clips)
+          || !request.clips.length || request.clips.length > 1000
+          || typeof request.expectedSnapshot !== "string") throw new Error("invalid append-clips request");
+      if (run) throw new Error("clips cannot be added while the project is rendering");
+      if (JSON.stringify(projectWorkspaceSnapshot()) !== request.expectedSnapshot) {
+        throw new Error("Project or reference content changed. Preview the batch again.");
+      }
+      // Validate every item before modifying the project or its Revert backup.
+      const additions = request.clips.map((clip) => {
+        if (!clip || typeof clip.name !== "string" || !clip.state || typeof clip.state.prompt !== "string"
+            || !Number.isSafeInteger(clip.state.length) || clip.state.length < 5
+            || clip.state.length % 17 !== 5) throw new Error("invalid batch clip state");
+        const state = parseInitial(JSON.stringify(clip.state));
+        if (state.width !== snap(state.width) || state.height !== snap(state.height)
+            || state.width * state.height > MAX_PIXELS + 1) throw new Error("invalid batch canvas resolution");
+        for (const slot of [...state.slots.videos, ...state.slots.audios]) {
+          if (slot.file && (!Number.isFinite(slot.dur) || !Number.isFinite(slot.start) || !Number.isFinite(slot.end)
+              || slot.start < 0 || slot.end > slot.dur || slot.end <= slot.start)) throw new Error("invalid batch reference range");
+        }
+        return { id: uid(), name: clip.name, state, link: false, off: false };
+      });
+      stash();
+      const p = proj(), wasEmpty = !p.shots.length;
+      if (wasEmpty) seedFromScreen(p);
+      snapProject("before appending reference batch");
+      if (wasEmpty) { p.shots = []; p.idx = -1; }
+      const first = p.shots.length;
+      p.shots.push(...additions); p.idx = first;
+      load(JSON.stringify(p.shots[first].state));
+      commit(); paintShotsBtn(); paintPresetName(); renderShots(); paintTimeline();
+      return projectWorkspaceSnapshot();
+    },
     newProject(request) {
       if (!request || request.version !== 1 || typeof request.clean !== "boolean") {
         throw new Error("invalid new-project request");
