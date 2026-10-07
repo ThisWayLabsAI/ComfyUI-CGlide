@@ -526,6 +526,25 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Browser-validate chooser cancellation, core-confirm cancellation, clean reset of every slot type, preserved settings, Revert restoration, keep-current behavior, and latest-edit backup; scoped accessibility audit reports no violations.
 - [ ] Live-validate the reference-copy handoff, enriched rail, and keyboard navigation after the user's active renders finish.
 
+### Reference timing and deterministic batch creation (2026-10-06)
+
+User use cases: generate a music video from a long song in manageable approximately 8-second clips; reinterpret a long video or replace a specified person using the same identity image on every segment. An optional editable use-case prompt should seed every clip. This is deterministic project creation, not AI scene/lyric interpretation, media splitting, precise compositing, or automatic post-production assembly.
+
+- [x] Add decimal-second Start, End, and Duration inputs to native audio/video trim controls; keep sliders, preview, frame warnings, and stored `start`/`end` fields authoritative. Continuation tails remain locked to the source end.
+- [x] Create a companion Batch clips form using a loaded audio/video source in Omni mode, optional source subrange, segment length, keep/discard tail, clip naming, and shared prompt text.
+- [x] Carry shared images and generation settings into every clip. Keep other timed references only when explicitly selected; never copy continuation or automation-owned carry/seam references.
+- [x] Offer editable Music video (audio signal reuse), Person replacement, Video reinterpretation, and Custom/current-prompt templates. Bind `{{source}}` and `{{identity}}` to actual selected tokens; support `{{start}}`, `{{end}}`, `{{duration}}`, and `{{clip}}`. Refuse unresolved reference tokens.
+- [x] Preview every source range and frame-count/render-duration/first-to-last-frame span. Preserve fixed source-clock boundaries; render on H3's grid without exceeding the requested per-clip generation limit. Round a shorter final render up when the limit permits. Require manual trim/pad/sync in post rather than silently shifting source windows.
+- [x] Append an entire batch through one validated core command, with stale-snapshot rejection, a Render All guard, one Revert backup, and no inherited links or render history. Preserve an unlisted visible clip in the backup without adding an unwanted starter clip to the batch.
+- [x] Export a standalone `.h3proj.json` containing decimal-second reference ranges; source files must already be accessible to ComfyUI. Export does not modify the current project or duplicate source media.
+- [x] Pass 41 companion model tests, syntax checks, and isolated browser checks for millisecond trim entry, audio/video batches, template/token binding, shared images, export without mutation, invalid/stale append rejection, and Revert. Verify a visible action footer and zero scoped accessibility violations; real rendered media remains a separate validation item.
+- [ ] Validate with real audio/video generation, especially final-tail timing and soundtrack reuse, after user evaluation. Synthetic UI checks do not verify model output or synchronization.
+- [ ] Consider saved custom-template management, optional grid-fit source segmentation, native trim editing inside the Prompt Workspace, and beat/scene-aware segmentation separately after this fixed-range first version is evaluated.
+
+Timing/import contract: `state.slots.videos[i]` and `state.slots.audios[i]` use `file`, `start`, `end`, and `dur`; times are numeric seconds, and `dur` describes the complete source. Video `audio` explicitly opts into its soundtrack. Project JSON has `shots[].state`, unique clip IDs, and `meta.links: 1` to avoid legacy link inference. This implementation reuses the source file via ranges, not physical sliced files. Extremely short remainders below the minimum supported duration are refused when Keep is selected; choose Discard or adjust the range.
+
+Implementation ownership: native typed trim fields and `projectNavigation.appendClips` / `clipSettings.framesForSegment` stay authoritative in core; the pure range/template planner and batch form live in companion `cglide_reference_batch_model.js` and `cglide_reference_batch.js`. Keep the generic core changes separable from private documentation and TWL UI in potential upstream PRs.
+
 ### Milestone 5: Script breakdown and coverage planning
 
 - [ ] Load text-based screenplay PDFs and identify documents needing OCR.
@@ -609,6 +628,8 @@ Important regions:
   - Exposes immutable ratio ladders and aligned duration presets used by compact companion editors.
 - `newProject()`, `projectNavigation.newProject`, and the `cglide:project-new` dispatch in the project New button handler
   - Native default still keeps the visible clip. The companion cancels the presentation event to show choices; core owns confirmation, render-run guard, stash/backup, optional prompt/media reset, and persistence. Clean must snapshot an unlisted visible clip before clearing it. Review all three symbols together when merging upstream.
+- `trim()`'s decimal-second inputs, `projectNavigation.appendClips`, and `projectNavigation.clipSettings.framesForSegment`
+  - Merge-review typed inputs alongside the existing drag/paint/commit paths and the tail-only restriction. Batch append must validate every state before mutation, reject stale previews and running renders, preserve Revert, and never inherit links or output history. Frame-grid computation must remain in core rather than drift into the companion planner.
 - The object returned at the end of `buildUI()`
   - Current externally reachable surface: `root`, `destroy`, `load`, `pasteFile`, `save`, and `state`.
 - `stateFromFile()`, `doLoad()`, and project load/import functions
