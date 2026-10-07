@@ -522,6 +522,8 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Add a collapsible left clip drawer and a prompt-only expanded workspace mode.
 - [x] Preserve native textarea undo for camera and prompt-structure insertions.
 - [x] Verify that native New intentionally clears the project list while retaining the current on-screen clip and its references.
+- [x] Add an explicit New choice: keep the visible clip or clear prompt/all reference slots/continuation while retaining generation settings. Back up latest edits and unlisted clips for Revert; keep the chooser in the companion and the authoritative reset in core.
+- [x] Browser-validate chooser cancellation, core-confirm cancellation, clean reset of every slot type, preserved settings, Revert restoration, keep-current behavior, and latest-edit backup; scoped accessibility audit reports no violations.
 - [ ] Live-validate the reference-copy handoff, enriched rail, and keyboard navigation after the user's active renders finish.
 
 ### Milestone 5: Script breakdown and coverage planning
@@ -605,6 +607,8 @@ Important regions:
   - Attaches that controller to an external textarea without exposing mutable project state or duplicating CGlide's suggestion rules.
 - The version 1 `projectNavigation.clipSettings` catalog
   - Exposes immutable ratio ladders and aligned duration presets used by compact companion editors.
+- `newProject()`, `projectNavigation.newProject`, and the `cglide:project-new` dispatch in the project New button handler
+  - Native default still keeps the visible clip. The companion cancels the presentation event to show choices; core owns confirmation, render-run guard, stash/backup, optional prompt/media reset, and persistence. Clean must snapshot an unlisted visible clip before clearing it. Review all three symbols together when merging upstream.
 - The object returned at the end of `buildUI()`
   - Current externally reachable surface: `root`, `destroy`, `load`, `pasteFile`, `save`, and `state`.
 - `stateFromFile()`, `doLoad()`, and project load/import functions
@@ -724,6 +728,8 @@ The branch should contain only the focused upstream contribution. In particular,
 ## Decision Log
 
 Record decisions here as the author responds or implementation proceeds.
+
+New-project follow-up (2026-10-06): the user explicitly requested an optional completely clean start. This supersedes the earlier decision to leave New unchanged only for the opt-in clean path; keep-current remains the upstream default. Generation settings and graph wiring survive, slot media and prompt do not. Disk assets are never deleted. Browser checks cover cancellation and Revert, including a latest-edited and an unlisted clip.
 
 | Date | Decision | Reason |
 |---|---|---|
