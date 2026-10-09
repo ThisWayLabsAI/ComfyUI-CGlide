@@ -6,6 +6,10 @@ This document records the planned TWL customizations, the extension surfaces the
 
 It is an internal development document, not part of the proposed upstream issue. The initial upstream request should remain small and reviewable.
 
+## Current checkpoint — 2026-10-09
+
+See [development handoff](../README.md#current-handoff--2026-10-09) for repository baselines, ready-to-test additions, and the next-session prompt. Latest implementation is pushed to core Dev and companion main; no stable promotion is recorded. All 41 companion tests passed again on this date. Real-media batch rendering, tail timing, and user workflow evaluation remain pending. Prior dated plans and decisions below preserve history; use the latest checked implementation entries and this checkpoint for present behavior.
+
 ## Repository Strategy
 
 The intended branch roles are:
@@ -36,7 +40,7 @@ The first request proposes only a lightweight frontend extension seam:
 - The UI root element
 - Optional stable `data-cglide-slot` insertion points
 
-The issue-ready proposal is in `CGLIDE_EXTENSION_HOOK_ISSUE.md`.
+The issue-ready proposal is in [the extension-hook issue draft](../upstream-proposals/cglide-extension-hook-issue.md).
 
 The first request should not attempt to define a complete plugin framework, project-state API, render automation API, or new Python node contract.
 
@@ -316,7 +320,7 @@ Implement in this order:
 3. Preview and remap media tokens and `<Subject N>` identifiers atomically.
 4. Add project-load policies: replace, preserve, fill-empty, and prompt.
 
-Reference copying is the next requested feature. Its narrow bridge should perform authoritative project-state changes inside CGlide while the selection and preview UI remains in the companion extension.
+Reference copying and its atomic preview/remapping bridge are implemented. Project-load reference policies remain future work; they are separate from New's optional clean-start reset. The original order above records the plan, not an instruction to rebuild completed copying functionality.
 
 ### Priority 2 follow-up: Clean continuation inputs before rerendering - implemented on Dev
 
@@ -343,7 +347,7 @@ This is intentionally narrower than seed hunting. It establishes a clean, repeat
 - Establish narrow `getPrompt`, `setPrompt`, and `insertPrompt` capabilities. Implemented on the Dev branch as the version 1 `promptEditing` capability.
 - Add camera angle and movement chips first. The initial palette includes framing, angle, static, dolly/tracking, pan, crane, and handheld phrases.
 - Keep vocabulary deterministic and editable as data in the companion extension; do not make a model call for a chip insertion.
-- Insert only at the current cursor or selection. In structured prompts, require that range to be inside `detailed_description`; report whether it is in the introduction or a specific `[Shot N]` block.
+- Insert only at the current cursor or selection. In structured prompts, accept the authored timeline field (`detailed_description` or `integrated_multimodal_description`); report whether it is in the introduction or a specific `[Shot N]` block.
 - Refuse to guess a target when the cursor is in `subject_definitions`, `summary`, sound, music, or an unknown section. Older unstructured prompts remain cursor-editable.
 - Use this small feature to validate that edits update visible UI, stored state, serialization, validation, selection, and dirty state together.
 
@@ -373,7 +377,7 @@ This is the smallest high-value feature and the best proof that the extension ar
 - Provide deterministic MiniMax prompt scaffolding for `subject_definitions`, `summary`, `retention_analysis`, `detailed_description`, `overall_soundscape`, and `non_diegetic_music`.
 - Include an editable `[Shot 1] at 00:00.000:` starter, and insert only missing sections in canonical order without rewriting existing authored text.
 - Advance the shot chip to one higher than the greatest shot number detected in `detailed_description`, while leaving `00:00.000` as an explicit user-edited timestamp placeholder.
-- Provide cursor-scoped custom-dialogue and audio-reference-dialogue starters in `detailed_description`. Both use a stable speaker ID and `<d>` block; the audio variant references `@audio1` for voice timbre and delivery without inheriting the reference recording's words.
+- Provide a cursor-scoped custom-dialogue starter in the authored timeline. Audio-ref dialogue now opens the full package form in the compact reference-template menu, selecting actual audio/video-soundtrack tokens, language, exact spoken words, and speaker binding rather than hard-coding `@audio1`.
 - Share the persistent 10px-20px prompt font preference with the workspace editor.
 - Support checkbox multi-selection (including Shift ranges), batch removal, and block-preserving drag-and-drop reordering.
 - Expose rename, enable/disable, link/unlink, resolution, and duration through authoritative project commands rather than direct companion mutations.
@@ -524,7 +528,7 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Verify that native New intentionally clears the project list while retaining the current on-screen clip and its references.
 - [x] Add an explicit New choice: keep the visible clip or clear prompt/all reference slots/continuation while retaining generation settings. Back up latest edits and unlisted clips for Revert; keep the chooser in the companion and the authoritative reset in core.
 - [x] Browser-validate chooser cancellation, core-confirm cancellation, clean reset of every slot type, preserved settings, Revert restoration, keep-current behavior, and latest-edit backup; scoped accessibility audit reports no violations.
-- [ ] Live-validate the reference-copy handoff, enriched rail, and keyboard navigation after the user's active renders finish.
+- [ ] Complete user workflow evaluation of reference-copy handoff, enriched rail, and keyboard navigation. Automated isolated browser checks exist, but are not a substitute for the user's real projects.
 
 ### Reference timing and deterministic batch creation (2026-10-06)
 

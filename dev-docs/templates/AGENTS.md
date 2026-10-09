@@ -61,6 +61,8 @@ Review the symbol-based conflict inventory in `dev-docs/roadmaps/cglide-customiz
 
 ## Worktree safety
 
+- At the start of a new session, read `dev-docs/README.md` for the dated handoff and then the roadmap's current checkpoint and conflict inventory. Check the sibling companion repository's README and worktree too. Historical plans must not override later decisions; unvalidated renders must not be reported as tested.
+
 - Preserve unrelated user changes in a dirty worktree.
 - Before switching or integrating branches, inspect `git status --short --branch`.
 - Do not use destructive Git commands to resolve branch or worktree problems.
