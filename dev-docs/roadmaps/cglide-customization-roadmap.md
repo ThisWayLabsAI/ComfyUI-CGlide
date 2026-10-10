@@ -514,6 +514,7 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Enrich the clip rail with compact reference thumbnails, prompt summaries, and keyboard previous/next navigation.
 - [x] Carry the persistent prompt font-size controls into the workspace.
 - [x] Add arbitrary and Shift-range clip selection with batch removal and drag-and-drop reordering.
+- [x] Add select-all/deselect-all and bulk enable/disable/link/unlink controls to both the native project clip menu and Prompt Workspace.
 - [x] Add clip rename, enable/disable, and predecessor-link controls.
 - [x] Add per-clip resolution and duration with apply-to-selected and apply-to-all actions.
 - [x] Present duration editing in decimal seconds, convert to CGlide's aligned frame count internally, and baseline-align the resolution, duration, and action controls.

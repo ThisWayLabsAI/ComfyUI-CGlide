@@ -1264,6 +1264,10 @@ textarea.gcast-hl-ta.hlon::selection { background:#ffffff30; }
    footers get pushed off screen, which is the low-res bug. */
 .gcast-shots-list { flex:1 1 auto; min-height:0; max-height:min(52vh, 420px);
   overflow:auto; display:flex; flex-direction:column; gap:4px; }
+.gcast-shots-bulk { display:flex; align-items:center; gap:4px; flex-wrap:wrap;
+  padding:5px 0 3px; border-bottom:1px solid var(--h3-line); }
+.gcast-shots-bulk .count { margin-right:auto; color:var(--h3-dim); font-size:10px; }
+.gcast-shots-bulk .gcast-btn { padding:2px 6px; font-size:9.5px; }
 .gcast-shots-empty { color:var(--h3-dim); font-size:11px; padding:9px 4px; line-height:1.5; }
 .gcast-shot { display:flex; align-items:center; gap:8px; padding:5px; border-radius:7px;
   border:1px solid transparent; cursor:pointer; }
@@ -1272,6 +1276,7 @@ textarea.gcast-hl-ta.hlon::selection { background:#ffffff30; }
 .gcast-shot .th { width:46px; height:30px; flex:0 0 auto; border-radius:4px; overflow:hidden;
   background:var(--h3-well); display:flex; align-items:center; justify-content:center; color:#4a4a4a; }
 .gcast-shot .th img, .gcast-shot .th video { width:100%; height:100%; object-fit:cover; display:block; }
+.gcast-shot .pick { width:14px; height:14px; flex:0 0 auto; margin:0; accent-color:var(--h3-violet); }
 .gcast-shot .mid { min-width:0; flex:1 1 auto; }
 .gcast-shot .nm { font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .gcast-shot .meta { font-family:ui-monospace,Consolas,monospace; font-size:9.5px; color:var(--h3-dim); }
@@ -4260,6 +4265,7 @@ function buildUI(node) {
   const uid = () => Math.random().toString(36).slice(2, 9);
   let shotsOpen = false;
   let shotsFocus = -1;
+  const shotsSelected = new Set();
 
   function proj() {
     node.properties = node.properties || {};
@@ -5703,6 +5709,25 @@ function buildUI(node) {
     commit(); renderShots(); paintTimeline();
   }
 
+  function setShotLinks(p, indices, linked) {
+    indices.forEach((i) => {
+      if (i < 1 || !p.shots[i]) return;
+      p.shots[i].link = linked;
+      if (!linked) dropContinuation(i);
+    });
+  }
+
+  function applySelectedShotState(kind, value) {
+    if (run || !shotsSelected.size) return;
+    stash();
+    const p = proj();
+    const indices = [];
+    p.shots.forEach((shot, index) => { if (shotsSelected.has(shot)) indices.push(index); });
+    if (kind === "enabled") indices.forEach((i) => { p.shots[i].off = !value; });
+    else setShotLinks(p, indices, value);
+    commit(); renderShots(); paintTimeline();
+  }
+
   function moveShot(i, d) {
     const p = proj();
     const j = i + d;
@@ -6151,6 +6176,7 @@ function buildUI(node) {
   function renderShots() {
     if (!shotsOpen) return;
     const p = proj();
+    for (const shot of shotsSelected) if (!p.shots.includes(shot)) shotsSelected.delete(shot);
     shotsPanel.dataset.mode = st.mode;
 
     /* The list is rebuilt on every change, which used to throw the scroll
@@ -6173,6 +6199,34 @@ function buildUI(node) {
       projLabel ? `file: ${projLabel}` : "not written to a file yet \u2014 kept in the workflow"));
     shotsPanel.append(head);
 
+    const bulk = el("div", "gcast-shots-bulk");
+    const count = el("span", "count");
+    const bAll = el("button", "gcast-btn ghost", "All");
+    const bNone = el("button", "gcast-btn ghost", "None");
+    const bEnable = el("button", "gcast-btn ghost", "Enable");
+    const bDisable = el("button", "gcast-btn ghost", "Disable");
+    const bLink = el("button", "gcast-btn ghost", "Link");
+    const bUnlink = el("button", "gcast-btn ghost", "Unlink");
+    count.textContent = `${shotsSelected.size} selected`;
+    bAll.title = "Select every clip";
+    bNone.title = "Deselect every clip";
+    bEnable.title = "Include selected clips in project renders";
+    bDisable.title = "Skip selected clips in project renders";
+    bLink.title = "Link each selected clip to its immediate predecessor; the first clip remains unlinked";
+    bUnlink.title = "Unlink selected clips and clear their generated continuation and seam references";
+    bAll.disabled = !p.shots.length || shotsSelected.size === p.shots.length;
+    bNone.disabled = !shotsSelected.size;
+    [bEnable, bDisable, bUnlink].forEach((button) => { button.disabled = !shotsSelected.size || !!run; });
+    bLink.disabled = !!run || !p.shots.some((shot, index) => index > 0 && shotsSelected.has(shot));
+    bAll.onclick = (e) => { e.stopPropagation(); p.shots.forEach((shot) => shotsSelected.add(shot)); renderShots(); };
+    bNone.onclick = (e) => { e.stopPropagation(); shotsSelected.clear(); renderShots(); };
+    bEnable.onclick = (e) => { e.stopPropagation(); applySelectedShotState("enabled", true); };
+    bDisable.onclick = (e) => { e.stopPropagation(); applySelectedShotState("enabled", false); };
+    bLink.onclick = (e) => { e.stopPropagation(); applySelectedShotState("linked", true); };
+    bUnlink.onclick = (e) => { e.stopPropagation(); applySelectedShotState("linked", false); };
+    bulk.append(count, bAll, bNone, bEnable, bDisable, bLink, bUnlink);
+    shotsPanel.append(bulk);
+
     const list = el("div", "gcast-shots-list");
     if (!p.shots.length) {
       list.append(el("div", "gcast-shots-empty",
@@ -6181,6 +6235,16 @@ function buildUI(node) {
     p.shots.forEach((s, i) => {
       const row = el("div", "gcast-shot" + (i === p.idx ? " on" : "")
                                           + (s.off ? " off" : ""));
+
+      const pick = el("input", "pick");
+      pick.type = "checkbox";
+      pick.checked = shotsSelected.has(s);
+      pick.setAttribute("aria-label", `Select ${shotLabel(s, i)}`);
+      pick.onclick = (e) => {
+        e.stopPropagation();
+        if (pick.checked) shotsSelected.add(s); else shotsSelected.delete(s);
+        renderShots();
+      };
 
       const th = el("div", "th");
       const f = shotThumb(s.state);
@@ -6234,7 +6298,7 @@ function buildUI(node) {
       rm.onclick = (e) => { e.stopPropagation(); delShot(i); };
       ctl.append(up, dn, rm);
 
-      row.append(th, mid, skip, ctl);
+      row.append(pick, th, mid, skip, ctl);
       row.onclick = () => switchTo(i);
       if (i === shotsFocus) row.dataset.focus = "1";
       list.append(row);
@@ -7480,6 +7544,16 @@ function buildUI(node) {
     return projectWorkspaceSnapshot();
   }
 
+  function linkProjectClips(request) {
+    if (!request || typeof request.linked !== "boolean") throw new Error("invalid link-clips request");
+    if (run) throw new Error("clips cannot be linked while the project is rendering");
+    stash();
+    const { p, indices } = projectClipIndices(request, "link-clips");
+    setShotLinks(p, indices, request.linked);
+    commit(); renderShots(); paintTimeline();
+    return projectWorkspaceSnapshot();
+  }
+
   /* One immutable catalog feeds CGlide's settings controls and focused
    * companion editors. Consumers can present the choices differently, but
    * ratio ladders, native/draft labels, duration values, and frame alignment
@@ -7525,6 +7599,7 @@ function buildUI(node) {
     renameClip: renameProjectClip,
     setClipsEnabled: enableProjectClips,
     setClipLinked: linkProjectClip,
+    setClipsLinked: linkProjectClips,
     moveClips: moveProjectClips,
     reorderClips: reorderProjectClips,
     deleteClips: deleteProjectClips,
