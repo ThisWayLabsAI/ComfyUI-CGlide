@@ -515,6 +515,8 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Carry the persistent prompt font-size controls into the workspace.
 - [x] Add arbitrary and Shift-range clip selection with batch removal and drag-and-drop reordering.
 - [x] Add select-all/deselect-all and bulk enable/disable/link/unlink controls to both the native project clip menu and Prompt Workspace.
+- [x] Collapse the Prompt structure/Dialogue/Reference templates/Camera direction helper region independently with an edge chevron matching the clip and reference drawers; keep the prompt editor and references visible.
+- [x] Preview workspace video/audio references with native media controls and edit Start, End, Duration, and video soundtrack use through an authoritative stale-guarded core command.
 - [x] Add clip rename, enable/disable, and predecessor-link controls.
 - [x] Add per-clip resolution and duration with apply-to-selected and apply-to-all actions.
 - [x] Present duration editing in decimal seconds, convert to CGlide's aligned frame count internally, and baseline-align the resolution, duration, and action controls.
@@ -544,7 +546,7 @@ User use cases: generate a music video from a long song in manageable approximat
 - [x] Export a standalone `.h3proj.json` containing decimal-second reference ranges; source files must already be accessible to ComfyUI. Export does not modify the current project or duplicate source media.
 - [x] Pass 41 companion model tests, syntax checks, and isolated browser checks for millisecond trim entry, audio/video batches, template/token binding, shared images, export without mutation, invalid/stale append rejection, and Revert. Verify a visible action footer and zero scoped accessibility violations; real rendered media remains a separate validation item.
 - [ ] Validate with real audio/video generation, especially final-tail timing and soundtrack reuse, after user evaluation. Synthetic UI checks do not verify model output or synchronization.
-- [ ] Consider saved custom-template management, optional grid-fit source segmentation, native trim editing inside the Prompt Workspace, and beat/scene-aware segmentation separately after this fixed-range first version is evaluated.
+- [ ] Consider saved custom-template management, optional grid-fit source segmentation, and beat/scene-aware segmentation separately after this fixed-range first version is evaluated. Native trim editing inside the Prompt Workspace is implemented locally for evaluation.
 
 Timing/import contract: `state.slots.videos[i]` and `state.slots.audios[i]` use `file`, `start`, `end`, and `dur`; times are numeric seconds, and `dur` describes the complete source. Video `audio` explicitly opts into its soundtrack. Project JSON has `shots[].state`, unique clip IDs, and `meta.links: 1` to avoid legacy link inference. This implementation reuses the source file via ranges, not physical sliced files. Extremely short remainders below the minimum supported duration are refused when Keep is selected; choose Discard or adjust the range.
 

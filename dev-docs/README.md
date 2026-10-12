@@ -4,16 +4,16 @@ This directory contains TWL-specific planning, research, decisions, and upstream
 
 These documents belong on `TWL-ComfyUI-CGlide-Dev`. They are not part of the upstream project and must not be included in branches used for upstream pull requests.
 
-## Current handoff — 2026-10-09
+## Current handoff — 2026-10-10
 
 Read this section first in a new session, then the roadmap's latest implementation checklists and symbol-based conflict inventory. Earlier dated decisions explain history; they do not override later explicit decisions or the current implementation.
 
 ### Repositories and pushed code baselines
 
-- Core fork: `C:\ComfyUI-Easy-Install\ComfyUI\custom_nodes\ComfyUI-CGlide`, branch `TWL-ComfyUI-CGlide-Dev`; latest source/planning baseline `4ddc8d4`, with timing/batch core commands in `34c0594`. Confirmed on origin on 2026-10-09.
-- Companion: sibling `ComfyUI-CGlide-TWL`, branch `main`; latest baseline `b6d83a6`. Confirmed on origin on 2026-10-09. This is the separate companion repository's main, not the core fork's upstream-mirror main.
-- The implementation was pushed on 2026-10-07. Neither core `main` nor the stable `TWL-ComfyUI-CGlide` branch was promoted by that push. Do not promote the latest additions until user render evaluation.
-- These handoff documentation updates are local until explicitly pushed. Recheck both worktrees and remote tips at the start of future work; this snapshot is not a permanent assertion about Git state.
+- Core fork: `C:\ComfyUI-Easy-Install\ComfyUI\custom_nodes\ComfyUI-CGlide`, branch `TWL-ComfyUI-CGlide-Dev`; latest pushed baseline `f62dc8b`, including bulk clip controls. Confirmed on origin on 2026-10-10.
+- Companion: sibling `ComfyUI-CGlide-TWL`, branch `main`; latest pushed baseline `af2b430`, including workspace bulk clip controls. Confirmed on origin on 2026-10-10. This is the separate companion repository's main, not the core fork's upstream-mirror main.
+- User real-render testing of the batch creator succeeded. Neither core `main` nor the stable `TWL-ComfyUI-CGlide` branch was promoted. Do not promote without an explicit request.
+- Prompt-helper collapse and workspace timed-media preview/editing described below are local and uncommitted until user evaluation. Recheck both worktrees and remote tips at the start of future work; this snapshot is not a permanent assertion about Git state.
 
 ### Implemented and ready for user evaluation
 
@@ -22,10 +22,12 @@ Read this section first in a new session, then the roadmap's latest implementati
 - Project New choices: keep the visible clip, start completely clean, or cancel. Clean clears prompt/reference slots/continuation but keeps settings and graph wiring; native Revert backs up even an unlisted clip. Disk media is not deleted.
 - Native audio/video Start, End, and Duration fields in decimal seconds. Continuation tails remain locked; effective video-reference frame counts still follow H3 rules.
 - Companion **Batch clips** beside the Prompt heading: use a loaded audio/video reference in Omni mode, fixed source subranges, default 8-second segments, shared images/settings, keep/discard tail, and editable music-video/person-replacement/reinterpretation/custom templates. Preview, append with Revert, or export standalone `.h3proj.json`; no automatic render or file splitting.
+- Both native and workspace clip menus provide select-all/deselect-all and bulk enable/disable/link/unlink actions.
+- Local evaluation batch: independently collapse the Prompt structure/Dialogue/Reference templates/Camera direction helper region with an edge chevron; preview audio/video references in native media controls; edit Start, End, Duration, and video soundtrack use through a narrow authoritative core command.
 
 ### Verification and next work
 
-`npm test` in the companion passed all **41 tests again on 2026-10-09**. Earlier isolated browser checks covered typed trim entry, template/token binding, audio/video batches, non-mutating export, invalid/stale append rejection, Revert, visible footer controls, and zero scoped accessibility violations. They used synthetic media references, not model renders. Syntax/whitespace checks passed during implementation. No ComfyUI restart, real generation, or browser retest was performed for this documentation-only handoff.
+`npm test` in the companion passed all **41 tests again on 2026-10-10**. Targeted isolated browser checks covered the superseded whole-prompt collapse, video preview, timing edits synchronized back into native H3 Studio, and zero scoped accessibility violations. The corrected prompt-helper chevron plus equivalent audio and selected-range playback still need user evaluation. Syntax and whitespace checks passed. The user separately reported successful real-render batch testing.
 
 Immediate priority is user evaluation, not additional speculative features:
 

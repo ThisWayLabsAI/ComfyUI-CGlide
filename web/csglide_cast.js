@@ -7349,10 +7349,37 @@ function buildUI(node) {
     return projectWorkspaceSnapshot();
   }
 
+  function updateWorkspaceTimedReference(request) {
+    if (!request || request.version !== 1
+        || (request.kind !== "video" && request.kind !== "audio")
+        || typeof request.expectedFile !== "string") {
+      throw new Error("invalid update-timed-reference request");
+    }
+    if (run) throw new Error("references cannot change while the project is rendering");
+    const ref = referenceSlot(request.kind, Number(request.index));
+    const slot = ref.slot;
+    if (!slot.file || slot.file !== request.expectedFile) {
+      throw new Error("the reference changed; reopen it before applying timing");
+    }
+    const dur = Number(slot.dur);
+    const start = Number(request.start);
+    const end = Number(request.end);
+    if (!Number.isFinite(dur) || dur <= 0 || !Number.isFinite(start) || !Number.isFinite(end)
+        || start < 0 || end > dur || end <= start) {
+      throw new Error("enter a valid range within the source duration, with end after start");
+    }
+    slot.start = start;
+    slot.end = end;
+    if (request.kind === "video" && typeof request.audio === "boolean") slot.audio = request.audio;
+    render(); commit(); stash();
+    return projectWorkspaceSnapshot();
+  }
+
   const referenceEditingV1 = Object.freeze({
     version: 1,
     set: setWorkspaceReference,
     clear: clearWorkspaceReference,
+    updateTimed: updateWorkspaceTimedReference,
   });
 
   /* Project navigation for focused editors. The full clip states are cloned
