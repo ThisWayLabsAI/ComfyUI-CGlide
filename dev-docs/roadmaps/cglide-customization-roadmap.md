@@ -6,9 +6,9 @@ This document records the planned TWL customizations, the extension surfaces the
 
 It is an internal development document, not part of the proposed upstream issue. The initial upstream request should remain small and reviewable.
 
-## Current checkpoint — 2026-10-09
+## Current checkpoint — 2026-10-12
 
-See [development handoff](../README.md#current-handoff--2026-10-09) for repository baselines, ready-to-test additions, and the next-session prompt. Latest implementation is pushed to core Dev and companion main; no stable promotion is recorded. All 41 companion tests passed again on this date. Real-media batch rendering, tail timing, and user workflow evaluation remain pending. Prior dated plans and decisions below preserve history; use the latest checked implementation entries and this checkpoint for present behavior.
+See [development handoff](../README.md#current-handoff--2026-10-12) for repository baselines, the authorized commit/push batch, and remaining evaluation. All 52 companion tests passed on this date. The user reported successful real-render batch testing and working find/replace. Duration statistics, bulk section editing, highlighted find previews, and Apply & continue are implemented; the last two interaction fixes still need user confirmation. No stable promotion is authorized. Prior dated plans and decisions below preserve history; use the latest checked implementation entries and this checkpoint for present behavior.
 
 ## Repository Strategy
 
@@ -515,6 +515,8 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Carry the persistent prompt font-size controls into the workspace.
 - [x] Add arbitrary and Shift-range clip selection with batch removal and drag-and-drop reordering.
 - [x] Add select-all/deselect-all and bulk enable/disable/link/unlink controls to both the native project clip menu and Prompt Workspace.
+- [x] Show the selected render scope's queued clip count and summed frame-span seconds beside native Render, and enabled/total clips plus enabled summed seconds beside the Prompt Workspace Clips title.
+- [x] Replace raw `adopt_output 404` render-stop alerts with clip-aware missing-output guidance for linked continuation and `+ look` handoffs while retaining structured HTTP diagnostics in the console error.
 - [x] Collapse the Prompt structure/Dialogue/Reference templates/Camera direction helper region independently with an edge chevron matching the clip and reference drawers; keep the prompt editor and references visible.
 - [x] Preview workspace video/audio references with native media controls and edit Start, End, Duration, and video soundtrack use through an authoritative stale-guarded core command.
 - [x] Add clip rename, enable/disable, and predecessor-link controls.
@@ -532,6 +534,9 @@ This comes last because it changes the graph contract and likely requires upstre
 - [x] Add an explicit New choice: keep the visible clip or clear prompt/all reference slots/continuation while retaining generation settings. Back up latest edits and unlisted clips for Revert; keep the chooser in the companion and the authoritative reset in core.
 - [x] Browser-validate chooser cancellation, core-confirm cancellation, clean reset of every slot type, preserved settings, Revert restoration, keep-current behavior, and latest-edit backup; scoped accessibility audit reports no violations.
 - [ ] Complete user workflow evaluation of reference-copy handoff, enriched rail, and keyboard navigation. Automated isolated browser checks exist, but are not a substitute for the user's real projects.
+- [x] Add a previewed, atomic bulk named-section editor for selected clips. The first version provides exact replace/append operations for Summary, Soundscape, and Music, preserves unrelated sections, rejects the entire stale apply, and creates one Revert snapshot.
+- [x] Add previewed global prompt find/replace across selected, enabled, or all clips, with literal-first matching, optional case/whole-word/regex modes, per-clip exclusion, exact counts and excerpts, prompt-only mutation, atomic stale refusal, and one Revert snapshot.
+- [ ] Add reference/subject validation before allowing bulk Subjects or Retention edits; keep clip-specific Details/Timeline editing out of generic bulk replacement until it has a shot-aware design.
 
 ### Reference timing and deterministic batch creation (2026-10-06)
 

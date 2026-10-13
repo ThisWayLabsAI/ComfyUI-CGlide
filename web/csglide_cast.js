@@ -741,6 +741,8 @@ const CSS = `
 .gcast-runmode { background:#191919; color:#ccc; border:1px solid #333; border-radius:4px;
   font-size:10px; padding:2px 4px; font-family:inherit; }
 .gcast-shots-foot.run .gcast-chk { font-size:10px; gap:4px; }
+.gcast-runstat { color:var(--h3-dim); font:10px/1.2 ui-monospace,Consolas,monospace;
+  white-space:nowrap; }
 .gcast-btn.run { border-color:var(--h3-accent); color:var(--h3-accent); }
 .gcast-btn.run:hover:not([disabled]) { background:#ff9f4318; }
 .gcast-x { all:unset; pointer-events:auto; cursor:pointer; margin-left:auto; color:var(--h3-dim); padding:0 3px;
@@ -2219,7 +2221,27 @@ function buildUI(node) {
         filename: pick.name, subfolder: pick.subfolder || "", type: pick.type || "output",
       }),
     });
-    if (a.status !== 200) throw new Error(`adopt_output ${a.status}`);
+    if (a.status !== 200) {
+      let serverDetail = "";
+      try {
+        const body = await a.json();
+        serverDetail = body && typeof body.error === "string" ? body.error.trim() : "";
+      } catch (e) { /* an HTTP proxy may have replaced the JSON response */ }
+      const where = pick.subfolder ? `${pick.subfolder}/${pick.name}` : pick.name;
+      const message = a.status === 404
+        ? (opts.missingMessage
+           || `The recorded render "${where}" could not be found in ComfyUI's `
+              + "output folder. It may have been moved, renamed, or deleted.\n\n"
+              + "Restore the file or render that clip again before continuing.")
+        : `ComfyUI could not prepare "${where}" as a reference `
+          + `(adopt_output returned HTTP ${a.status}`
+          + `${serverDetail ? `: ${serverDetail}` : ""}).`;
+      const error = new Error(message);
+      error.code = "adopt_output";
+      error.status = a.status;
+      error.source = where;
+      throw error;
+    }
     const d = await a.json();
     const name = d.subfolder ? `${d.subfolder}/${d.name}` : d.name;
     clearSlot(slot);
@@ -5578,7 +5600,15 @@ function buildUI(node) {
 
         if (linked && from) {
           run.note = "taking the tail of " + shotLabel(pred, i - 1) + "\u2026"; paintRun();
-          await raceCancel(adoptInto(st.cont, from));
+          const previous = shotLabel(pred, i - 1);
+          const current = shotLabel(sh, i);
+          const source = from.subfolder ? `${from.subfolder}/${from.name}` : from.name;
+          await raceCancel(adoptInto(st.cont, from, {
+            missingMessage: `${current} is linked to ${previous}, but ${previous}'s `
+              + `recorded render "${source}" is missing from ComfyUI's output folder.\n\n`
+              + `Re-render ${previous} (or widen the render scope to include it), `
+              + `restore that file, or unlink ${current}.`,
+          }));
           const win = tailWindow(st.cont.dur || 0, 22);
           st.cont.start = win.start; st.cont.end = win.end;
           run.note = "doubling the tail as a seam reference\u2026"; paintRun();
@@ -5610,7 +5640,17 @@ function buildUI(node) {
                throw it away, so the slot is the look's to own for the run. */
             run.note = "carrying the look from " + shotLabel(pred, i - 1) + "\u2026"; paintRun();
             const slot = st.slots.videos[0];
-            await raceCancel(adoptInto(slot, from, { silent: true, reference: true }));
+            const previous = shotLabel(pred, i - 1);
+            const current = shotLabel(sh, i);
+            const source = from.subfolder ? `${from.subfolder}/${from.name}` : from.name;
+            await raceCancel(adoptInto(slot, from, {
+              silent: true,
+              reference: true,
+              missingMessage: `${current} is carrying the look from ${previous}, but `
+                + `${previous}'s recorded render "${source}" is missing from ComfyUI's `
+                + `output folder.\n\nRe-render ${previous} (or widen the render scope to `
+                + `include it), restore that file, or turn off + look for this render.`,
+            }));
             slot.carry = true;
             run.note = "choosing the clearest window\u2026"; paintRun();
             const got = await raceCancel(applySmartSpan(slot));
@@ -6416,10 +6456,22 @@ function buildUI(node) {
       + "outside predecessor needed to begin a mid-chain run are not changed.";
 
     const bRun = el("button", "gcast-btn run", "Render");
+    const runStat = el("span", "gcast-runstat", "0 clips · 0.00s");
     const paintRunTitle = () => {
-      if (!p.shots.length) { bRun.title = "Add some clips first"; return; }
+      if (!p.shots.length) {
+        runStat.textContent = "0 clips · 0.00s";
+        runStat.title = "No project clips are queued";
+        bRun.title = "Add some clips first";
+        return;
+      }
       const r = scopeRange(selScope.value, p.idx >= 0 ? p.idx : 0);
       const q = selScope.value === "clip" ? r : r.filter((i) => !p.shots[i].off);
+      const seconds = q.reduce((total, i) => {
+        const state = i === p.idx ? st : p.shots[i].state;
+        return total + Math.max(0, ((Number(state && state.length) || 5) - 1) / FPS);
+      }, 0);
+      runStat.textContent = `${q.length} clip${q.length === 1 ? "" : "s"} · ${seconds.toFixed(2)}s`;
+      runStat.title = `${q.length} clip${q.length === 1 ? "" : "s"} in this render scope, ${seconds.toFixed(2)} seconds total`;
       const nl = q.filter((i) => i > 0 && p.shots[i].link).length;
       const nc = q.filter((i) => {
         const s = i === p.idx ? st : p.shots[i].state;
@@ -6444,7 +6496,7 @@ function buildUI(node) {
     bRun.onclick = (e) => { e.stopPropagation(); closeShots();
                             renderAll(selScope.value, cbLook.checked, cbClear.checked); };
     rfoot.append(el("div", "lbl", "Scope"), el("div", "spacer"), selScope,
-                  labLook, labClear, bRun);
+                  labLook, labClear, runStat, bRun);
     shotsPanel.append(rfoot);
   }
 
@@ -7138,6 +7190,7 @@ function buildUI(node) {
           name: shotLabel(shot, index),
           enabled: !shot.off,
           linked: index > 0 && !!shot.link,
+          durationSeconds: Math.max(0, (state.length - 1) / FPS),
           revision: referenceCopyRevision(state),
           state: clone(state),
         });
@@ -7571,6 +7624,38 @@ function buildUI(node) {
     return projectWorkspaceSnapshot();
   }
 
+  function updateProjectClipPrompts(request) {
+    if (!request || request.version !== 1 || !Array.isArray(request.updates)
+        || !request.updates.length || request.updates.length > 1000) {
+      throw new Error("invalid update-clip-prompts request");
+    }
+    if (run) throw new Error("clip prompts cannot change while the project is rendering");
+    stash();
+    const p = proj();
+    const seen = new Set();
+    const changes = request.updates.map((update) => {
+      if (!update || typeof update.clipId !== "string" || !update.clipId || seen.has(update.clipId)
+          || typeof update.expectedRevision !== "string" || typeof update.prompt !== "string") {
+        throw new Error("invalid clip prompt update");
+      }
+      seen.add(update.clipId);
+      const index = p.shots.findIndex((shot) => String(shot && shot.id || "") === update.clipId);
+      if (index < 0) throw new Error("a selected clip no longer exists");
+      const current = parseInitial(JSON.stringify(p.shots[index].state || {}));
+      if (referenceCopyRevision(current) !== update.expectedRevision) {
+        throw new Error(`${shotLabel(p.shots[index], index)} changed after preview; preview the bulk edit again`);
+      }
+      const next = parseInitial(Object.assign({}, clone(current), { prompt: update.prompt }));
+      return { index, next };
+    });
+    snapProject(`before editing prompt sections in ${changes.length} clip${changes.length === 1 ? "" : "s"}`);
+    for (const change of changes) p.shots[change.index].state = clone(change.next);
+    const active = changes.find((change) => change.index === p.idx);
+    if (active) load(JSON.stringify(active.next));
+    commit(); paintShotsBtn(); paintPresetName(); renderShots();
+    return projectWorkspaceSnapshot();
+  }
+
   function linkProjectClips(request) {
     if (!request || typeof request.linked !== "boolean") throw new Error("invalid link-clips request");
     if (run) throw new Error("clips cannot be linked while the project is rendering");
@@ -7631,6 +7716,7 @@ function buildUI(node) {
     reorderClips: reorderProjectClips,
     deleteClips: deleteProjectClips,
     updateClipSettings: updateProjectClipSettings,
+    updateClipPrompts: updateProjectClipPrompts,
     appendClips(request) {
       if (!request || request.version !== 1 || !Array.isArray(request.clips)
           || !request.clips.length || request.clips.length > 1000

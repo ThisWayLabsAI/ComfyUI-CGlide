@@ -4,16 +4,16 @@ This directory contains TWL-specific planning, research, decisions, and upstream
 
 These documents belong on `TWL-ComfyUI-CGlide-Dev`. They are not part of the upstream project and must not be included in branches used for upstream pull requests.
 
-## Current handoff — 2026-10-10
+## Current handoff — 2026-10-12
 
 Read this section first in a new session, then the roadmap's latest implementation checklists and symbol-based conflict inventory. Earlier dated decisions explain history; they do not override later explicit decisions or the current implementation.
 
 ### Repositories and pushed code baselines
 
-- Core fork: `C:\ComfyUI-Easy-Install\ComfyUI\custom_nodes\ComfyUI-CGlide`, branch `TWL-ComfyUI-CGlide-Dev`; latest pushed baseline `f62dc8b`, including bulk clip controls. Confirmed on origin on 2026-10-10.
-- Companion: sibling `ComfyUI-CGlide-TWL`, branch `main`; latest pushed baseline `af2b430`, including workspace bulk clip controls. Confirmed on origin on 2026-10-10. This is the separate companion repository's main, not the core fork's upstream-mirror main.
+- Core fork: `C:\ComfyUI-Easy-Install\ComfyUI\custom_nodes\ComfyUI-CGlide`, branch `TWL-ComfyUI-CGlide-Dev`; latest pushed baseline `da15f03`, including workspace timed-media editing. Confirmed on origin on 2026-10-11.
+- Companion: sibling `ComfyUI-CGlide-TWL`, branch `main`; latest pushed baseline `a1148a3`, including prompt-helper collapse and timed-media preview/editing. Confirmed on origin on 2026-10-11. This is the separate companion repository's main, not the core fork's upstream-mirror main.
 - User real-render testing of the batch creator succeeded. Neither core `main` nor the stable `TWL-ComfyUI-CGlide` branch was promoted. Do not promote without an explicit request.
-- Prompt-helper collapse and workspace timed-media preview/editing described below are local and uncommitted until user evaluation. Recheck both worktrees and remote tips at the start of future work; this snapshot is not a permanent assertion about Git state.
+- On 2026-10-12 the user authorized committing and pushing the pending core Dev and companion main batch: render/workspace duration statistics, atomic prompt updates, bulk section editing, global find/replace with find statistics and highlighted previews, Apply & close / Apply & continue, and informative render-handoff errors. Resolve the new commit IDs from Git; the hashes above are the preceding baselines. Recheck both worktrees and remote tips at the start of future work.
 
 ### Implemented and ready for user evaluation
 
@@ -24,12 +24,19 @@ Read this section first in a new session, then the roadmap's latest implementati
 - Companion **Batch clips** beside the Prompt heading: use a loaded audio/video reference in Omni mode, fixed source subranges, default 8-second segments, shared images/settings, keep/discard tail, and editable music-video/person-replacement/reinterpretation/custom templates. Preview, append with Revert, or export standalone `.h3proj.json`; no automatic render or file splitting.
 - Both native and workspace clip menus provide select-all/deselect-all and bulk enable/disable/link/unlink actions.
 - Local evaluation batch: independently collapse the Prompt structure/Dialogue/Reference templates/Camera direction helper region with an edge chevron; preview audio/video references in native media controls; edit Start, End, Duration, and video soundtrack use through a narrow authoritative core command.
+- Local evaluation batch: show queued clip count and summed seconds beside native Render for the selected scope; show enabled/total clip count and enabled summed seconds beside Clips in Prompt Workspace.
+- Local evaluation batch: select one or more workspace clips, choose **Edit sections**, then preview and atomically replace or append Summary, Soundscape, or Music. Other sections remain byte-for-byte outside normalized section boundaries; stale previews refuse the whole apply and successful applies create one project Revert snapshot.
+- Local evaluation batch: **Find/replace** searches prompt text across selected, enabled, or all clips, with literal matching by default, optional case/whole-word/regex modes, per-clip preview inclusion, excerpts and counts, atomic stale refusal, and one Revert snapshot. It does not touch clip names or media paths.
+- Find previews show total matches and the number of matching clips, with red removal / green insertion highlights. **Apply & continue** keeps the dialog open and requires another preview; **Apply & close** returns to the workspace. **Edit sections** selects the active clip when no clip checkboxes are selected.
+- Render handoff failures now identify the missing predecessor output and explain the relevant recovery: re-render/include the predecessor, restore its file, unlink the current clip, or disable `+ look` when that was the handoff being attempted. The raw `adopt_output 404` remains available as structured console metadata rather than being the user-facing message.
 
 ### Verification and next work
 
-`npm test` in the companion passed all **41 tests again on 2026-10-10**. Targeted isolated browser checks covered the superseded whole-prompt collapse, video preview, timing edits synchronized back into native H3 Studio, and zero scoped accessibility violations. The corrected prompt-helper chevron plus equivalent audio and selected-range playback still need user evaluation. Syntax and whitespace checks passed. The user separately reported successful real-render batch testing.
+`npm test` in the companion passed all **52 tests on 2026-10-12**, including section editing and literal/regex find-replace behavior, whole-word and case modes, exact before/after highlight ranges, empty removal, stale-guarded multi-clip planning, and invalid/zero-width refusal. Earlier targeted isolated browser checks covered video preview, timing edits synchronized back into native H3 Studio, and zero scoped accessibility violations. The user accepted the corrected prompt-helper chevron and timed-media changes, which are now pushed. Interactive verification of the new duration statistics, bulk section editor, and find/replace modal remains pending; the latest isolated browser launch failed locally before page load, and no canvas, queue, project, or render interaction occurred. Syntax and whitespace checks passed. The user separately reported successful real-render batch testing.
 
 Immediate priority is user evaluation, not additional speculative features:
+
+The user reported that find/replace works. The Edit sections activation fix and Apply & continue still need user confirmation; do not describe those interactions as browser-verified.
 
 1. Render a real audio-source batch with a shared identity/style image. Check reference windows, audio reuse, clip naming, and no unintended extra references or continuation.
 2. Render a real video-source batch with a replacement identity image. Check range/frame behavior and retained source soundtrack selection; generation is not guaranteed precise compositing.
