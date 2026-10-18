@@ -8,7 +8,9 @@ It is an internal development document, not part of the proposed upstream issue.
 
 ## Current checkpoint — 2026-10-12
 
-See [development handoff](../README.md#current-handoff--2026-10-12) for repository baselines, the authorized commit/push batch, and remaining evaluation. All 52 companion tests passed on this date. The user reported successful real-render batch testing and working find/replace. Duration statistics, bulk section editing, highlighted find previews, and Apply & continue are implemented; the last two interaction fixes still need user confirmation. No stable promotion is authorized. Prior dated plans and decisions below preserve history; use the latest checked implementation entries and this checkpoint for present behavior.
+2026-10-17 follow-up: the user confirmed **Apply & continue** works. Companion commit `9465a93` (pushed to companion `main` with user authorization on this date) adds waveform trim handles to workspace audio/video previews, synchronized time fields, keyboard controls, and video seeking. Isolated synthetic-media checks passed; see the handoff for verification scope. Core changes in this follow-up are documentation only. Real-project evaluation remains pending.
+
+See [development handoff](../README.md#current-handoff--2026-10-12) for repository baselines, the authorized commit/push batch, and remaining evaluation. All 52 companion tests passed on this date. The user reported successful real-render batch testing and working find/replace. Duration statistics, bulk section editing, highlighted find previews, and Apply & continue are implemented; the Edit sections activation fix still needs user confirmation (Apply & continue was confirmed on 2026-10-17). No stable promotion is authorized. Prior dated plans and decisions below preserve history; use the latest checked implementation entries and this checkpoint for present behavior.
 
 ## Repository Strategy
 

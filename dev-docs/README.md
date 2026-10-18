@@ -36,7 +36,9 @@ Read this section first in a new session, then the roadmap's latest implementati
 
 Immediate priority is user evaluation, not additional speculative features:
 
-The user reported that find/replace works. The Edit sections activation fix and Apply & continue still need user confirmation; do not describe those interactions as browser-verified.
+The user reported that find/replace works and confirmed on 2026-10-17 that Apply & continue works. The Edit sections activation fix still needs user confirmation; do not describe it as browser-verified.
+
+2026-10-17 follow-up: Prompt Workspace audio/video reference previews now include waveform trim handles, synchronized numeric fields, keyboard adjustment, and preview seeking. The user authorized commit/push on 2026-10-17. Companion implementation commit `9465a93` is pushed to companion `main`; the core change is documentation only. All 52 companion tests, JavaScript syntax checks, and whitespace checks pass. Isolated browser fixtures using synthetic audio/video verified waveform decoding, real pointer dragging, keyboard bounds, numeric-field synchronization, preview seeking, the existing Apply timing request payload, selected-range playback, and cleanup; the trim component had zero scoped accessibility violations. These checks did not load a real ComfyUI project, run GPU jobs, or validate generated output. No stable promotion is authorized.
 
 1. Render a real audio-source batch with a shared identity/style image. Check reference windows, audio reuse, clip naming, and no unintended extra references or continuation.
 2. Render a real video-source batch with a replacement identity image. Check range/frame behavior and retained source soundtrack selection; generation is not guaranteed precise compositing.
