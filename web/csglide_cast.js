@@ -1,5 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import { ImageCarryRuntime, validateImageCarryQueue, createImageCarryControls, prepareImageCarryGraph } from "./experimental_image_carry.js";
 
 /* Printed once when the file loads: tells you at a glance, in the F12
  * console, which build the browser is actually running (cache or not). */
@@ -1600,6 +1601,7 @@ function buildUI(node) {
   const root = el("div", "gcast");
   let st = blankState();
   let dataWidget = null;
+  const imageCarryRuntime = new ImageCarryRuntime();
 
   /* Which clip of which project this is. Read at commit time from
      node.properties rather than kept in `st`, because `st` is what gets
@@ -5324,6 +5326,12 @@ function buildUI(node) {
   const VIDEO_OUT_RE = /\.(mkv|mp4|m4v|mov|webm|avi|mpg|mpeg|ts|m2ts|wmv|flv|ogv)$/i;
   let run = null;                 /* null when idle; the run's own state when not */
   let runBox = null;              /* the overlay, so it can be torn down */
+  // A direct Queue or an external workflow may rerender the visible clip without
+  // updating Project Render's lastOut. Conservatively discard session captures.
+  const invalidateExternalImageCarry = () => {
+    if (!run) imageCarryRuntime.invalidate(proj().shots);
+  };
+  api.addEventListener("execution_start", invalidateExternalImageCarry);
 
   /* Only 4:2:0 hurts: measured on the same pair, an AV1 yuv420p10le guide made
      Glide Join report a frame correction every time, while 4:2:2 and 4:4:4
@@ -5340,8 +5348,9 @@ function buildUI(node) {
     } catch (e) { return ""; }
   }
 
-  async function queueOnce() {
-    const p = await app.graphToPrompt();
+  async function queueOnce(transform) {
+    const original = await app.graphToPrompt();
+    const p = transform ? transform(original) : original;
     const res = await api.queuePrompt(0, p);
     const id = res && (res.prompt_id || res.promptId);
     if (!id) throw new Error("the server accepted no prompt id");
@@ -5469,6 +5478,7 @@ function buildUI(node) {
       run.note || (scopeText(run.scope)
                    + (run.links ? `, ${run.links} link${run.links === 1 ? "" : "s"}` : "")
                    + (run.look ? ", look carried across cuts" : "")
+                   + (run.imageCarry ? ", Image Carry (experimental, separate outputs)" : "")
                    + (run.cleared ? `, ${run.cleared} continue${run.cleared === 1 ? "" : "s"} cleared` : "")
                    + (run.skipped ? `, ${run.skipped} skipped` : ""));
     bShotsLbl.textContent = `Rendering ${run.k + 1}/${run.total}`;
@@ -5513,9 +5523,10 @@ function buildUI(node) {
      run or last week. That is what makes a scope that starts mid-chain work,
      and what lets one link be re-rolled on its own. A skipped clip inside the
      range still hands its old render to the next one. */
-  async function renderAll(scope, alsoLook, clearContinues) {
+  async function renderAll(scope, alsoLook, clearContinues, imageCarry = false) {
     if (run) return;
-    const look = !!alsoLook;
+    const look = !imageCarry && !!alsoLook;
+    clearContinues = !imageCarry && clearContinues;
     const p = proj();
     if (!p.shots.length) {
       alert("H3 Studio: this project has no clips yet.");
@@ -5531,15 +5542,20 @@ function buildUI(node) {
       return;
     }
 
+    if (imageCarry) {
+      try { validateImageCarryQueue(p.shots, queue, imageCarryRuntime, shotLabel); }
+      catch (error) { alert(`H3 Studio - Image Carry: ${error.message}`); return; }
+    }
+
     /* Refuse up front rather than three clips in. A linked clip needs either
        its neighbour rendered earlier in this run, a recorded last render of
        that neighbour, or a CONTINUE FROM already filled (a project from before
        lastOut existed, where the old run left the tail in place). */
     const inRun = new Set(queue);
     const contOf = (i) => (i === p.idx ? st.cont : ((p.shots[i].state || {}).cont));
-    const orphan = queue.find((i) => i > 0 && p.shots[i].link && !inRun.has(i - 1)
+    const orphan = !imageCarry ? queue.find((i) => i > 0 && p.shots[i].link && !inRun.has(i - 1)
                                      && !p.shots[i - 1].lastOut
-                                     && (!!clearContinues || !((contOf(i) || {}).file)));
+                                     && (!!clearContinues || !((contOf(i) || {}).file))) : undefined;
     if (orphan !== undefined) {
       const a = shotLabel(p.shots[orphan - 1], orphan - 1);
       alert(`H3 Studio: ${shotLabel(p.shots[orphan], orphan)} is linked to ${a}, `
@@ -5551,7 +5567,7 @@ function buildUI(node) {
       return;
     }
 
-    const links = queue.filter((i) => i > 0 && p.shots[i].link).length;
+    const links = imageCarry ? 0 : queue.filter((i) => i > 0 && p.shots[i].link).length;
     /* Only the guide path cares about chroma: a look carry is a reference, and
        a reference carries no timing, so the -2 correspondence finding does not
        apply to it. */
@@ -5576,7 +5592,7 @@ function buildUI(node) {
     const startIdx = p.idx;
     run = { cancel: false, force: false, waiters: [], i: queue[0], k: 0,
             total: queue.length, skipped: range.length - queue.length,
-            scope, look, links, cleared, note: "", made: [] };
+            scope, look, links, cleared, imageCarry, note: "", made: [] };
     paintRun();
 
     /* Every long await in the loop goes through here, so a second Stop press has
@@ -5596,7 +5612,7 @@ function buildUI(node) {
         const sh = p.shots[i];
         const pred = i > 0 ? p.shots[i - 1] : null;
         const from = (pred && pred.lastOut) || null;
-        const linked = !!(pred && sh.link);
+        const linked = !imageCarry && !!(pred && sh.link);
 
         if (linked && from) {
           run.note = "taking the tail of " + shotLabel(pred, i - 1) + "\u2026"; paintRun();
@@ -5665,9 +5681,26 @@ function buildUI(node) {
         }
 
         run.note = "queued, waiting for the render\u2026"; paintRun();
-        const id = await raceCancel(queueOnce());
+        const frame = imageCarry && pred ? imageCarryRuntime.frameFor(pred) : null;
+        if (imageCarry && pred && !frame) throw new Error("Image Carry raw predecessor capture is unavailable. Re-render/include the preceding clip, or disable Image Carry.");
+        if (frame) {
+          const query = new URLSearchParams({ filename: frame.filename, subfolder: frame.subfolder, type: "temp" });
+          const available = await raceCancel(api.fetchApi(`/view?${query}`, { method: "HEAD" }));
+          if (!available.ok) throw new Error("Image Carry temporary frame is missing. Re-render/include the preceding clip in Image Carry mode, or disable Image Carry to render independently.");
+        }
+        const nonce = imageCarry ? crypto.randomUUID() : null;
+        let imageVideoId = null;
+        const transform = imageCarry ? (graph) => {
+          const prepared = prepareImageCarryGraph(graph, node.id, frame, nonce);
+          imageVideoId = Object.keys(prepared.output).find((id) => prepared.output[id].class_type === "CSGlideVideoCS");
+          return prepared;
+        } : null;
+        // Invalidate downstream runtime captures before any rerender attempt.
+        imageCarryRuntime.invalidate(p.shots.slice(i));
+        const id = await raceCancel(queueOnce(transform));
         const entry = await raceCancel(waitForPrompt(id));
-        const out = videoFromHistory(entry);
+        const out = videoFromHistory(imageCarry
+          ? { outputs: { [imageVideoId]: entry.outputs?.[imageVideoId] } } : entry);
         if (!out) {
           throw new Error("that render produced no video file \u2014 is Glide Video "
                         + "(or another video output) connected in the graph?");
@@ -5678,6 +5711,7 @@ function buildUI(node) {
                        type: out.type || "output" };
         run.made.push(out.name);
         commit();
+        if (imageCarry) imageCarryRuntime.record(sh, entry, node.id, nonce);
         console.log(`[H3 Studio] Render: ${shotLabel(sh, i)} `
                   + `(${k + 1}/${queue.length}) \u2192 ${out.name}`);
 
@@ -6455,6 +6489,15 @@ function buildUI(node) {
       + "kept and rebuilt during the run. Manual references, skipped clips, and an "
       + "outside predecessor needed to begin a mid-chain run are not changed.";
 
+    const { label: labImageCarry, checkbox: cbImageCarry, preview: inspectCarry } = createImageCarryControls({
+      element: el, enabled: node.properties.gcast_run_image_carry === true, running: !!run,
+      previousFrame: p.idx > 0 ? imageCarryRuntime.frameFor(p.shots[p.idx - 1]) : null,
+      currentFrame: p.idx >= 0 ? imageCarryRuntime.frameFor(p.shots[p.idx]) : null,
+      videoOptions: [cbLook, cbClear],
+      viewURL: (query) => api.apiURL(`/view?${query}`),
+      onChange: (enabled) => { node.properties.gcast_run_image_carry = enabled; paintRunTitle(); },
+    });
+
     const bRun = el("button", "gcast-btn run", "Render");
     const runStat = el("span", "gcast-runstat", "0 clips · 0.00s");
     const paintRunTitle = () => {
@@ -6484,19 +6527,19 @@ function buildUI(node) {
       const last = shotLabel(p.shots[r[r.length - 1]], r[r.length - 1]);
       bRun.title = `${q.length} clip${q.length === 1 ? "" : "s"}: `
         + (r.length > 1 ? `${first} \u2192 ${last}` : first)
-        + (nl ? `, ${nl} continuing through CONTINUE FROM` : "")
-        + (cbClear.checked && nc ? `, clearing ${nc} existing continue${nc === 1 ? "" : "s"}` : "")
+        + (cbImageCarry.checked ? ", Image Carry pose reference, no video continuation or automatic join" : (nl ? `, ${nl} continuing through CONTINUE FROM` : ""))
+        + (!cbImageCarry.checked && cbClear.checked && nc ? `, clearing ${nc} existing continue${nc === 1 ? "" : "s"}` : "")
         + (r.length > q.length ? `, ${r.length - q.length} skipped` : "")
-        + ". Linked clips continue from their neighbour's last render.";
+        + (cbImageCarry.checked ? ". Source: previous raw final frame; conditioning: REF2VA image; output: separate clips." : ". Linked clips continue from their neighbour's last render.");
     };
     selScope.onchange = () => { node.properties.gcast_run_scope = selScope.value;
                                 paintRunTitle(); };
     paintRunTitle();
     bRun.disabled = !p.shots.length || !!run;
     bRun.onclick = (e) => { e.stopPropagation(); closeShots();
-                            renderAll(selScope.value, cbLook.checked, cbClear.checked); };
+                            renderAll(selScope.value, cbLook.checked, cbClear.checked, cbImageCarry.checked); };
     rfoot.append(el("div", "lbl", "Scope"), el("div", "spacer"), selScope,
-                  labLook, labClear, runStat, bRun);
+                  labLook, labClear, labImageCarry, inspectCarry, runStat, bRun);
     shotsPanel.append(rfoot);
   }
 
@@ -7761,6 +7804,7 @@ function buildUI(node) {
   return {
     root,
     destroy() {
+      api.removeEventListener("execution_start", invalidateExternalImageCarry);
       for (const controller of Array.from(autocompleteControllers)) controller.destroy();
       root.removeEventListener("scroll", closePromptAutocompletes, true);
       /* a window listener per node instance would outlive the node */

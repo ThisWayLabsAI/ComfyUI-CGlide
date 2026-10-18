@@ -161,6 +161,19 @@ def _resolve_asset(ref):
     """Find an uploaded asset. Tries the ref as given, then each asset folder."""
     if not ref:
         return None
+    # Image Carry runtime assets are explicitly annotated temp PNGs. Never
+    # resolve an arbitrary annotated path outside the dedicated temp folder.
+    if ref.endswith(" [temp]"):
+        relative = ref[:-7]
+        carry_root = os.path.realpath(os.path.join(folder_paths.get_temp_directory(), "cglide-image-carry"))
+        path = os.path.realpath(os.path.join(folder_paths.get_temp_directory(), relative))
+        if (relative.startswith("cglide-image-carry/")
+                and path.startswith(carry_root + os.sep)
+                and path.lower().endswith(".png") and os.path.isfile(path)):
+            return path
+        raise FileNotFoundError("Image Carry: temporary raw frame missing or invalid. "
+                                "Re-render the preceding clip in Image Carry mode, "
+                                "or disable Image Carry to render independently.")
     root = folder_paths.get_input_directory()
     candidates = [os.path.join(root, ref)]
     base = os.path.basename(ref)

@@ -1,0 +1,115 @@
+{
+  "meta": {
+    "app": "H3 Studio project",
+    "version": 1,
+    "links": 1
+  },
+  "name": "Image Carry two-clip TEMPLATE - replace media before rendering",
+  "idx": 0,
+  "shots": [
+    {
+      "id": "image-carry-example-01",
+      "name": "Test 01",
+      "link": false,
+      "off": false,
+      "state": {
+        "mode": "ref2va",
+        "width": 1344,
+        "height": 768,
+        "length": 73,
+        "ref_image_size": "match",
+        "ref_refine_scale": 1,
+        "prompt": "summary: A fixed-camera talking-head performance.\nsubject_definitions: @image1 supplies character identity and facial anatomy. @image2 supplies the room and background. @image3 supplies wardrobe, camera viewpoint, framing and subject scale. @audio1 supplies this clip's recorded dialogue.\nretention_analysis: Preserve each original image reference's assigned role. Use only this clip's selected audio segment.\ndetailed_description: [Shot 1] [Replace with the exact performance and dialogue instructions for clip 01.]\noverall_soundscape: [Replace with this clip's audio instructions.]\nnon_diegetic_music: N/A",
+        "cont": {},
+        "slots": {
+          "first": {},
+          "last": {},
+          "images": [
+            {
+              "file": "cglide/REPLACE_identity.png"
+            },
+            {
+              "file": "cglide/REPLACE_room.png"
+            },
+            {
+              "file": "cglide/REPLACE_composition.png"
+            },
+            {},
+            {},
+            {},
+            {},
+            {},
+            {}
+          ],
+          "videos": [
+            {},
+            {},
+            {}
+          ],
+          "audios": [
+            {
+              "file": "cglide/REPLACE_clip01.wav",
+              "start": 0,
+              "end": 3,
+              "dur": 3
+            },
+            {},
+            {}
+          ]
+        }
+      }
+    },
+    {
+      "id": "image-carry-example-02",
+      "name": "Test 02",
+      "link": false,
+      "off": false,
+      "state": {
+        "mode": "ref2va",
+        "width": 1344,
+        "height": 768,
+        "length": 73,
+        "ref_image_size": "match",
+        "ref_refine_scale": 1,
+        "prompt": "summary: A fixed-camera talking-head performance.\nsubject_definitions: @image1 supplies character identity and facial anatomy. @image2 supplies the room and background. @image3 supplies wardrobe, camera viewpoint, framing and subject scale. @audio1 supplies this clip's recorded dialogue.\nretention_analysis: Preserve each original image reference's assigned role. Use only this clip's selected audio segment.\ndetailed_description: [Shot 1] [Replace with the exact performance and dialogue instructions for clip 02.]\noverall_soundscape: [Replace with this clip's audio instructions.]\nnon_diegetic_music: N/A",
+        "cont": {},
+        "slots": {
+          "first": {},
+          "last": {},
+          "images": [
+            {
+              "file": "cglide/REPLACE_identity.png"
+            },
+            {
+              "file": "cglide/REPLACE_room.png"
+            },
+            {
+              "file": "cglide/REPLACE_composition.png"
+            },
+            {},
+            {},
+            {},
+            {},
+            {},
+            {}
+          ],
+          "videos": [
+            {},
+            {},
+            {}
+          ],
+          "audios": [
+            {
+              "file": "cglide/REPLACE_clip02.wav",
+              "start": 0,
+              "end": 3,
+              "dur": 3
+            },
+            {},
+            {}
+          ]
+        }
+      }
+    }
+  ]
+}
