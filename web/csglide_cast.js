@@ -163,7 +163,15 @@ const MIN_H_REF = 1252, MIN_H_FL = 1252;   // same floor in both modes, so the p
 /* v2 sizes the DOM widget from its content, so a shorter mode leaves a gap
  * above the panel. Pinning one content height keeps the top edge put. */
 const CONTENT_MIN = 1140;
-const PROMPT_H_REF = 160, PROMPT_H_FL = 300;   // fl2va has only two slots, so the space goes to the prompt
+/* What the node needs on top of the panel: title bar and the socket rows the
+   panel starts BELOW, plus the widget's bottom margin. Read live from the
+   widget's y when it has one (see chromeH); this is only the fallback, and
+   it is the value measured in ComfyUI 0.39 / frontend 1.55 - 12 output rows. */
+const NODE_CHROME = 266;
+/* The prompt's smallest height. It FILLS whatever the node has spare, so at
+   the default node size it is much taller than this; this is only how far it
+   gives way when the node is dragged shorter. */
+const PROMPT_H_REF = 90, PROMPT_H_FL = 90;
 
 const alignFrames = (n) => { n = Math.max(5, Math.round(n)); while (n % 17 !== 5) n++; return n; };
 const fmtSecs = (s) => (Math.round(s * 100) / 100).toFixed(2) + "s";
@@ -180,6 +188,11 @@ function blankState() {
     ref_refine_scale: 1,
     pace: 2.5,          /* legacy: the speech-budget slider is gone, kept so old .h3.json still parses */
     prompt: "",
+    /* "ref": the audio slots are references (<Audio j>), as always.
+     * "timeline": they are PLACED - held in the clip's own soundtrack at a time
+     * of their own, with H3 generating the sound in between. fl2va has no audio
+     * references, so there the slots are always placed whatever this says. */
+    audio_mode: "ref",
     slots: { first: {}, last: {}, images: mk(MAX_IMAGES), videos: mk(MAX_VIDEOS), audios: mk(MAX_AUDIOS) },
     /* CONTINUE FROM: the previous clip's tail, anchored at frame 0 of this one.
      * Deliberately NOT a reference slot - it takes no @token, never appears in
@@ -208,6 +221,7 @@ function parseInitial(raw) {
   }
   if (Number.isFinite(+d.pace) && +d.pace > 0) out.pace = Math.min(4, Math.max(1, +d.pace));
   if (typeof d.prompt === "string") out.prompt = d.prompt;
+  if (d.audio_mode === "timeline") out.audio_mode = "timeline";
 
   const s = (d.slots && typeof d.slots === "object") ? d.slots : {};
   const image = (o) => (o && o.file) ? { file: String(o.file) } : {};
@@ -218,6 +232,13 @@ function parseInitial(raw) {
     if (Number.isFinite(+o.end)) r.end = +o.end;
     if (Number.isFinite(+o.dur)) r.dur = +o.dur;
     if (withAudio && o.audio) r.audio = true;
+    if (!isVideo && !withAudio) {
+      /* Timeline placement of an audio slot: where it lands in the clip, and
+         how hard it is held. Harmless on a reference slot - Python only reads
+         them when the slot is placed. */
+      if (Number.isFinite(+o.at)) r.at = Math.max(0, +o.at);
+      if (Number.isFinite(+o.hold)) r.hold = Math.min(1, Math.max(0, +o.hold));
+    }
     if (isVideo) {
       /* Look-carry keys. `carry` earns the injected job line in the prompt and
          is read by the Python whitelist; `spanNote`/`spanScore` are UI-only and
@@ -248,7 +269,13 @@ function parseInitial(raw) {
     if (Number.isFinite(+c.end)) out.cont.end = +c.end;
     if (Number.isFinite(+c.dur)) out.cont.dur = +c.dur;
     if (c.audio) out.cont.audio = true;
-    if (c.flatten) out.cont.flatten = true;
+    /* Where the adopted clip was rendered - read by Python only to find the
+       .h3latent Glide Video wrote beside it (latent hold). */
+    if (c.origin && typeof c.origin === "object" && typeof c.origin.name === "string") {
+      out.cont.origin = { name: String(c.origin.name),
+                          subfolder: String(c.origin.subfolder || ""),
+                          type: c.origin.type === "temp" ? "temp" : "output" };
+    }
     /* UI-only, and dropped by the Python whitelist: what the guide's chroma is,
        so the 4:2:0 note survives a reload instead of vanishing until the file
        is re-adopted. */
@@ -285,11 +312,16 @@ function presentation(st) {
     rows.push({ tag: `<Video ${k}>`, from: `video ${n + 1}`, kind: "video", token: `@video${n + 1}` });
   });
   st.slots.audios.forEach((s, n) => {
-    if (!s.file) return; j++;
+    if (!s.file || audioPlaced(st)) return; j++;
     tags[`@audio${n + 1}`] = `<Audio ${j}>`;
     rows.push({ tag: `<Audio ${j}>`, from: `audio ${n + 1}`, kind: "audio", token: `@audio${n + 1}` });
   });
   return { rows, tags };
+}
+
+/* Whether the audio slots are on the timeline rather than references. */
+function audioPlaced(st) {
+  return st.mode === "fl2va" || st.audio_mode === "timeline";
 }
 
 /* Raw tags typed straight into the prompt, the way the official MiniMax guide
@@ -579,8 +611,16 @@ const CSS = `
   transform:translate(-50%,-50%); pointer-events:none; user-select:none;
   font-family:"Bahnschrift","DIN Alternate","Oswald",Impact,
     ui-sans-serif,system-ui,sans-serif;
-  font-size:31px; font-weight:800; letter-spacing:.16em; white-space:nowrap;
-  color:#ffffff; opacity:.055; }
+  font-size:46px; font-weight:800; letter-spacing:.18em; white-space:nowrap;
+  /* Interlaced: the letters are cut into 2px scanlines with 2px gaps, like an
+     old CRT field. Done as a striped fill clipped to the glyphs, so it stays
+     a pseudo-element with nothing to hit-test. Half the ink is gone, so the
+     opacity goes up to keep it as faint as the solid version was. */
+  color:transparent;
+  background:repeating-linear-gradient(180deg, #ffffff 0px, #ffffff 2px,
+             transparent 2px, transparent 4px);
+  -webkit-background-clip:text; background-clip:text;
+  opacity:.1; }
 .gcast-modebar > * { position:relative; z-index:1; }
 .gcast-seg { display:flex; background:var(--h3-bg); border:1px solid var(--h3-line);
   border-radius:7px; padding:2px; gap:2px; }
@@ -743,8 +783,17 @@ const CSS = `
 .gcast-shots-foot.run .gcast-chk { font-size:10px; gap:4px; }
 .gcast-runstat { color:var(--h3-dim); font:10px/1.2 ui-monospace,Consolas,monospace;
   white-space:nowrap; }
+/* the upscale pass is a different workflow, not an extra: warn, in orange */
+.gcast-chk.upwarn { color:#e8a758; }
+.gcast-chk.upwarn input { accent-color:#e8a758; }
+.gcast-chk.upwarn .ico { display:inline-flex; color:#e8a758; }
+.gcast-chk.upwarn.on { color:#1a1208; background:#e8a758; border-radius:4px; padding:1px 6px 1px 3px; }
+.gcast-chk.upwarn.on .ico { color:#1a1208; }
 .gcast-btn.run { border-color:var(--h3-accent); color:var(--h3-accent); }
 .gcast-btn.run:hover:not([disabled]) { background:#ff9f4318; }
+.gcast-btn.run { display:inline-flex; align-items:center; gap:5px; }
+.gcast-btn.run .ico { flex:0 0 auto; pointer-events:none; transition:transform .18s; }
+.gcast-btn.run:hover:not([disabled]) .ico { transform:translate(1px,-1px); }
 .gcast-x { all:unset; pointer-events:auto; cursor:pointer; margin-left:auto; color:var(--h3-dim); padding:0 3px;
   border-radius:3px; font-size:12px; line-height:1; }
 .gcast-x:hover { color:#ff7a7a; background:#ff7a7a1a; }
@@ -867,7 +916,12 @@ const CSS = `
 .gcast-tl .clip .sk:hover { opacity:1; background:#000000a6; }
 .gcast-tl .clip.off .sk { opacity:.9; }
 .gcast-tl .clip.hasdot { padding-right:21px; }
-.gcast-tl .clip.on { box-shadow:inset 0 0 0 2px var(--h3-accent), 0 2px 7px rgba(0,0,0,.55); }
+.gcast-tl .clip.on { box-shadow:inset 0 0 0 2px var(--h3-accent), 0 2px 7px rgba(0,0,0,.55);
+  /* The selected clip carries its OWN colour harder rather than a glow - the
+     strip clips overflow, so a glow would be cut flat top and bottom. Same
+     hue as the edge, stronger at the bar and reaching right across the block. */
+  background:linear-gradient(90deg, var(--cgs, #ffffff30) 0px, var(--cws, #ffffff1c) 38px,
+             var(--cfs, #ffffff0c) 100%), var(--h3-panel); }
 .gcast-tl .clip.on .nm { opacity:1; }
 .gcast-tl .clip.lifted { opacity:.3; }
 /* where the dragged clip would land */
@@ -910,6 +964,77 @@ const CSS = `
 .gcast-tl .clip.virtual { cursor:default; }
 .gcast-wav { width:100%; height:34px; background:var(--h3-well); border-radius:5px; cursor:pointer;
   display:flex; align-items:center; justify-content:center; color:#525252; font-size:11px; }
+
+/* timeline audio ---------------------------------------------------- */
+.gcast-audwrap { display:flex; flex-direction:column; gap:6px; }
+.gcast-audhead { display:flex; align-items:center; gap:10px; min-height:20px; }
+.gcast-seg.mini button { padding:1px 10px; font-size:10px; }
+.gcast-audhead .gcast-need { font-size:9.5px; }
+/* One tone per slot, so a card and its block on the lane pair up at a glance.
+   None of them is the accent: the accent already means "this mode". */
+.gcast-audwrap { --gc-l1:#ffb35c; --gc-l2:#ff7ab6; --gc-l3:#a97bff; }
+.gcast-ldot { width:7px; height:7px; border-radius:50%; flex:0 0 auto; }
+.gcast-ldot.l1 { background:var(--gc-l1); } .gcast-ldot.l2 { background:var(--gc-l2); }
+.gcast-ldot.l3 { background:var(--gc-l3); }
+.gcast-lane { position:relative; background:var(--h3-panel); border:1px solid var(--h3-line);
+  border-radius:7px; padding:3px 6px 6px; user-select:none;
+  display:flex; align-items:center; gap:7px; }
+/* ruler + bed; the play button sits beside it, so nothing gets taller */
+.gcast-lane .lbody { position:relative; flex:1 1 auto; min-width:0; }
+.gcast-lane.drop { border-color:var(--h3-accent); background:var(--h3-accent-dim); }
+.gcast-lplay { all:unset; box-sizing:border-box; flex:0 0 auto; width:24px; height:24px;
+  border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer;
+  color:var(--h3-accent); border:1px solid var(--h3-accent); background:var(--h3-accent-dim); }
+.gcast-lplay:hover { background:color-mix(in srgb, var(--h3-accent) 30%, #1a1a1a); }
+.gcast-lplay.busy { opacity:.55; cursor:progress; }
+.gcast-lplay svg { display:block; }
+/* the ruler is the scrub bar: click or drag anywhere on it */
+.gcast-lane .ruler.scrub { cursor:ew-resize; }
+.gcast-lane .ruler.scrub:hover { background:#ffffff08; border-radius:3px; }
+.gcast-lane .lhead { position:absolute; top:0; bottom:0; width:0; border-left:2px solid #ff3b3b;
+  margin-left:-1px; pointer-events:none; z-index:4; box-shadow:0 0 4px #ff3b3b88; }
+.gcast-lane .lhead::before { content:""; position:absolute; top:0; left:-5px; border:4px solid transparent;
+  border-top:6px solid #ff3b3b; border-bottom:0; }
+.gcast-lane .lhead.idle { border-left-color:#ff3b3bb0; box-shadow:none; }
+.gcast-lane .lhead.idle::before { border-top-color:#ff3b3bb0; }
+.gcast-lane .ruler { position:relative; height:12px; }
+.gcast-lane .tk { position:absolute; top:6px; bottom:0; border-left:1px solid #3a3a3a; }
+.gcast-lane .tk span { position:absolute; top:-7px; left:3px; font:9px ui-monospace,Consolas,monospace;
+  color:var(--h3-label); white-space:nowrap; }
+.gcast-lane .bed { position:relative; height:26px; border-radius:5px; overflow:hidden;
+  background:repeating-linear-gradient(135deg, #171717 0 6px, #1c1c1c 6px 12px); }
+.gcast-lane .bed.withsong { height:34px; }
+.gcast-lane .gap { position:absolute; top:0; bottom:0; display:flex; align-items:center; justify-content:center;
+  font-size:9.5px; letter-spacing:.12em; text-transform:uppercase; color:#4a4a4a; pointer-events:none; }
+.gcast-lane .song { position:absolute; left:0; right:0; bottom:0; height:9px; background:var(--h3-accent-dim);
+  border-top:1px solid var(--h3-accent); color:var(--h3-accent); font:8.5px/9px ui-monospace,Consolas,monospace;
+  padding-left:5px; white-space:nowrap; overflow:hidden; }
+.gcast-lane .blk { position:absolute; top:2px; height:20px; border-radius:4px; cursor:grab;
+  display:flex; align-items:center; gap:6px; padding:0 9px; box-sizing:border-box; overflow:hidden;
+  background:color-mix(in srgb, var(--gc-tone) 26%, #1a1a1a); border:1px solid var(--gc-tone);
+  color:#f0f0f0; font-size:10px; white-space:nowrap; touch-action:none; outline:none; }
+.gcast-lane .blk.l1 { --gc-tone:var(--gc-l1); } .gcast-lane .blk.l2 { --gc-tone:var(--gc-l2); }
+.gcast-lane .blk.l3 { --gc-tone:var(--gc-l3); }
+.gcast-lane .blk:hover, .gcast-lane .blk:focus-visible { background:color-mix(in srgb, var(--gc-tone) 40%, #1a1a1a); }
+.gcast-lane .blk.drag { cursor:grabbing; box-shadow:0 0 0 1px #fff4, 0 4px 14px #000a; z-index:3; }
+/* held below 1: H3 may rework it, so the block reads lighter */
+.gcast-lane .blk.soft { border-style:dashed; }
+/* the trim runs past the clip's end and is cut there */
+.gcast-lane .blk.cut { border-right:2px solid #e8a758; }
+.gcast-lane .blk .lbl { overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1 1 auto; }
+.gcast-lane .blk .tip { font:9px ui-monospace,Consolas,monospace; color:#ffffffaa; flex:0 0 auto; }
+.gcast-lane .blk .edge { position:absolute; top:0; bottom:0; width:7px; cursor:ew-resize; }
+.gcast-lane .blk .edge.a { left:0; } .gcast-lane .blk .edge.b { right:0; }
+.gcast-lane .blk .edge:hover { background:#ffffff22; }
+.gcast-lane .bed.withsong .blk { top:2px; }
+.gcast-place { display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:4px; margin-top:5px; }
+.gcast-pf { display:flex; flex-direction:column; gap:1px; min-width:0; }
+.gcast-pf span { font-size:8.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--h3-label); }
+.gcast-pf input { width:100%; box-sizing:border-box; background:var(--h3-well); color:var(--h3-txt);
+  border:1px solid var(--h3-line); border-radius:4px; padding:2px 3px; font:10px ui-monospace,Consolas,monospace; }
+.gcast-pf input:focus { outline:none; border-color:var(--h3-accent); }
+.gcast-pread { grid-column:1 / -1; font:9.5px ui-monospace,Consolas,monospace; color:var(--h3-dim); }
+.gcast-pread.warn { color:#e8a758; }
 
 .gcast-trim { padding:2px 0 0; }
 .gcast-track { position:relative; height:44px; cursor:pointer;
@@ -1198,8 +1323,8 @@ textarea.gcast-hl-ta.hlon::selection { background:#ffffff30; }
    Violet on purpose: amber already means "something is wrong" in the
    prompt check and the presentation strip, and blue/green are taken by
    the two weight families. */
-.gcast-btn.shots { background:#2a2340; border-color:#584a78; color:#c9aeff; }
-.gcast-btn.shots:hover { border-color:#a97bff; color:#e4d6ff; }
+.gcast-btn.shots { background:#2a2340; border-color:#584a78; color:#ffffff; }
+.gcast-btn.shots:hover { border-color:#a97bff; color:#ffffff; }
 /* all:unset on .gcast-btn leaves display:inline, so the glyph and the label
    need a flex box of their own to sit on one baseline. Left padding comes in
    2px to keep the button the same width it was. */
@@ -1252,6 +1377,13 @@ textarea.gcast-hl-ta.hlon::selection { background:#ffffff30; }
 .gcast-set-row .txt { flex:1 1 auto; min-width:0; }
 .gcast-set-row .t { font-size:11.5px; color:var(--h3-txt); line-height:1.35; }
 .gcast-set-row .d { font-size:10.5px; color:var(--h3-dim); line-height:1.45; padding-top:3px; }
+/* compact: label left, control right, one line, a rule between rows */
+.gcast-set-row.line { align-items:center; padding:7px 2px; border-top:1px solid var(--h3-line); }
+.gcast-set-row.line .t { flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis; }
+.gcast-set-row.line .gcast-seg, .gcast-set-row.line .gcast-btn { flex:0 0 auto; }
+.gcast-seg.small button { padding:2px 9px; font-size:10.5px; }
+.gcast-btn.small { padding:2px 9px; font-size:10.5px; }
 .gcast-shots input { background:var(--h3-well); color:var(--h3-txt); box-sizing:border-box;
   border:1px solid var(--h3-line); border-radius:5px; padding:4px 7px; width:100%;
   font-family:inherit; font-size:11.5px; outline:none; }
@@ -1270,6 +1402,18 @@ textarea.gcast-hl-ta.hlon::selection { background:#ffffff30; }
   padding:5px 0 3px; border-bottom:1px solid var(--h3-line); }
 .gcast-shots-bulk .count { margin-right:auto; color:var(--h3-dim); font-size:10px; }
 .gcast-shots-bulk .gcast-btn { padding:2px 6px; font-size:9.5px; }
+/* pointer-events spelled out: all:unset would inherit a stale none (see the
+   gotcha noted on the panel root) */
+.gcast-sw { all:unset; pointer-events:auto; cursor:pointer; display:flex; align-items:center;
+  gap:6px; padding:2px 2px 2px 6px; font-size:10px; color:var(--h3-dim); user-select:none; }
+.gcast-sw:hover { color:#ddd; }
+.gcast-sw .track { position:relative; width:24px; height:13px; border-radius:7px;
+  background:#ffffff1c; transition:background .15s; }
+.gcast-sw .knob { position:absolute; top:2px; left:2px; width:9px; height:9px; border-radius:50%;
+  background:#9a9a9a; transition:left .15s, background .15s; }
+.gcast-sw[aria-pressed="true"] { color:#ddd; }
+.gcast-sw[aria-pressed="true"] .track { background:var(--h3-accent); }
+.gcast-sw[aria-pressed="true"] .knob { left:13px; background:#fff; }
 .gcast-shots-empty { color:var(--h3-dim); font-size:11px; padding:9px 4px; line-height:1.5; }
 .gcast-shot { display:flex; align-items:center; gap:8px; padding:5px; border-radius:7px;
   border:1px solid transparent; cursor:pointer; }
@@ -1314,6 +1458,24 @@ textarea.gcast-hl-ta.hlon::selection { background:#ffffff30; }
 .gcast-shots-foot .gcast-btn.revert:hover { border-color:#a97bff; color:#e4d6ff; }
 .gcast-shots-foot .gcast-btn[disabled] { opacity:.34; cursor:default; }
 .gcast-shots-foot .gcast-btn[disabled]:hover { border-color:var(--h3-line); color:var(--h3-dim); }
+/* Song rows: sit between the project row and Render, no rule of their own
+   above the second one so the two read as one block. */
+.gcast-shots-foot.song .lbl:first-child { color:var(--h3-accent); }
+.gcast-shots-foot.song.lay { border-top:none; padding-top:5px; margin-top:0; }
+.gcast-shots-foot.song.lay .lbl:first-child { color:var(--h3-dim); }
+.gcast-shots-foot.song.warnrow .lbl:first-child { color:#e8a758; }
+.gcast-shots-foot .songfile { max-width:190px; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; }
+.gcast-shots-foot.song .gcast-chk { font-size:10px; gap:4px; }
+.gcast-btn.songrm { white-space:nowrap; font-size:10.5px; padding:3px 8px; }
+.gcast-btn.songrm:hover { color:#ff6b6b; border-color:#ff6b6b; }
+.gcast-songnum { width:52px; background:#191919; color:#ccc; border:1px solid #333;
+  border-radius:4px; font-size:10px; padding:2px 4px; font-family:ui-monospace,Consolas,monospace; }
+.gcast-songnum:focus { outline:none; border-color:var(--h3-accent); }
+.gcast-songwin { font-family:ui-monospace,Consolas,monospace; font-size:9.5px;
+  color:var(--h3-accent); margin-top:2px; white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis; }
+.gcast-songwin.warn { color:#e8a758; }
 
 .gcast-badge { font-family:ui-monospace,Consolas,monospace; font-size:9.5px;
   letter-spacing:.06em; padding:1px 6px; border-radius:10px; flex:0 0 auto;
@@ -1617,13 +1779,127 @@ function buildUI(node) {
     };
   };
 
+  /* Latent hold is the DEFAULT (tested 2026-10-17: six links, brightness,
+     contrast, saturation and detail flat where the pixel guide went 14%
+     duller and 55% crunchier). Only an explicit untick turns it off. */
+  const latentHoldOn = () => node.properties.gcast_cont_latent !== false;
+
+  /* UPSCALE PASS. Off by default; switched on in the Render row of an
+     upscale workflow (H3 Studio's latent -> upscaler -> refine, no first
+     sampler). The clip is then built from its saved full latent - the .h3full
+     beside its draft render (lastOut) - and Glide Join is handed the previous
+     linked clip's UPSCALED render (lastUp), so a chain stitches at upscale
+     size. Draft and upscale are recorded apart, neither overwrites the other. */
+  const upscaleOn = () => !!node.properties.gcast_upscale;
+  const pickOf = (o) => (o && o.name)
+    ? { name: String(o.name), subfolder: String(o.subfolder || ""),
+        type: o.type === "temp" ? "temp" : "output" } : null;
+  function upscaleMeta() {
+    if (!upscaleOn()) return null;
+    const p = node.properties && node.properties.gcast_project;
+    if (!p || !Array.isArray(p.shots) || !(p.idx >= 0) || !p.shots[p.idx]) return null;
+    const sh = p.shots[p.idx];
+    const linked = p.idx > 0 && !!sh.link;
+    return {
+      src: pickOf(sh.lastOut),
+      prev: linked ? pickOf(p.shots[p.idx - 1].lastUp) : null,
+      overlap: linked ? songOverlap(p, p.idx) : 0,
+    };
+  }
+
   const commit = () => {
     if (!dataWidget) dataWidget = node.widgets?.find((w) => w.name === "h3_data");
     /* The clip identity rides along in the widget value only. parseInitial
        whitelists on the way back in, so it is dropped on reload rather than
        becoming part of the state. */
-    if (dataWidget) dataWidget.value = JSON.stringify(Object.assign({}, st, { clip: clipMeta() }));
+    if (dataWidget) dataWidget.value = JSON.stringify(Object.assign({}, st,
+      { clip: clipMeta(), song: songMeta(),
+        /* node-level, like "+ look": Render all clears and refills CONTINUE
+           FROM on every link, so a flag kept in the slot would not survive */
+        cont_latent: latentHoldOn(), upscale: upscaleMeta() }));
     node.setDirtyCanvas(true, true);
+  };
+
+  /* ================================================================ song
+   *
+   * One track for the whole project, kept in gcast_project.song. Each clip
+   * locks ITS window of it into the audio half of the latent (see
+   * _lock_song in csglide_cast.py), so H3 generates picture against the real
+   * song instead of re-performing it.
+   *
+   * Where a clip sits in the song comes from the project, not from the clip:
+   * clip i starts where clip i-1 started, plus clip i-1's length, minus the
+   * frames clip i re-renders when it is linked. That is exactly what Glide
+   * Join does with early_cut - the source keeps everything but its last
+   * `overlap` frames and the continuation follows from frame 0 - so the song
+   * lands on the same frames the picture does. An unlinked clip is a cut and
+   * simply follows on.
+   *
+   * Read straight off node.properties, never through proj(): commit() runs
+   * during buildUI, before the project helpers below exist.
+   */
+  /* The window a continuation takes off a linked tail: 22 frames (tested
+     default) or 39, from Settings. Read off node.properties directly - this
+     runs from render(), which can fire before settings() is set up. Only the
+     grid sizes exist (17k+5), and 5 is too short to carry motion. */
+  const overlapFrames = () => {
+    const s = node.properties && node.properties.gcast_settings;
+    return (s && +s.overlap === 39) ? 39 : 22;
+  };
+  const songSnap = (n) => { let g = Math.floor(n); while (g > 0 && g % 17 !== 5) g--; return g; };
+
+  function songOf() {
+    const p = node.properties && node.properties.gcast_project;
+    return (p && p.song && p.song.file) ? p.song : null;
+  }
+
+  function songClipFrames(p, k) {
+    const s = k === p.idx ? st : ((p.shots[k] && p.shots[k].state) || {});
+    return alignFrames(s.length || 56);
+  }
+
+  /* Frames clip k re-renders of clip k-1: its CONTINUE FROM window when it has
+     one (snapped the way the node snaps it), the window Render will take when
+     it has not been filled yet, nothing when it is a cut. */
+  function songOverlap(p, k) {
+    const sh = p.shots[k];
+    if (!sh || !sh.link) return 0;
+    const s = k === p.idx ? st : (sh.state || {});
+    const c = s.cont || {};
+    if (c.file && Number.isFinite(+c.start) && Number.isFinite(+c.end) && +c.end > +c.start) {
+      const g = songSnap(Math.round((+c.end - +c.start) * FPS) + 1);
+      if (g >= 5) return g;
+    }
+    return overlapFrames();
+  }
+
+  /* Seconds into the song where clip i's frame 0 lands. */
+  function songPos(p, i) {
+    let t = +((p.song && p.song.start) || 0);
+    for (let k = 0; k < i && k < p.shots.length; k++) {
+      t += (songClipFrames(p, k) - songOverlap(p, k + 1)) / FPS;
+    }
+    return t;
+  }
+
+  /* What the node gets for the clip on screen, or null with no song (or the
+     song switched off). Outside a project the window starts at the song's
+     own start. */
+  function songMeta() {
+    const sg = songOf();
+    if (!sg || sg.on === false) return null;
+    const p = node.properties.gcast_project;
+    const i = (Array.isArray(p.shots) && p.idx >= 0 && p.shots[p.idx]) ? p.idx : -1;
+    const start = i >= 0 ? songPos(p, i) : +(sg.start || 0);
+    const strength = Number.isFinite(+sg.strength) ? Math.min(1, Math.max(0, +sg.strength)) : 1;
+    return { file: String(sg.file), start: Math.round(start * 1000) / 1000, strength };
+  }
+
+  const songClock = (t) => {
+    t = Math.max(0, t);
+    const m = Math.floor(t / 60);
+    const s = t - m * 60;
+    return `${m}:${s < 10 ? "0" : ""}${s.toFixed(2)}`;
   };
 
   /* ---- preset bar ---- */
@@ -1806,9 +2082,89 @@ function buildUI(node) {
   const imgGrid = el("div", "gcast-grid img");
   const vidLabel = el("div", "gcast-label", "Reference videos");
   const vidGrid = el("div", "gcast-grid med");
+  refWrap.append(imgLabel, imgGrid, el("div", null, ""), vidLabel, vidGrid);
+
+  /* Audio sits OUTSIDE refWrap so it shows in both modes: in Omni it can be
+     references or timeline, in First / last it is always timeline (fl2va has
+     no audio references, and placing sound against a keyframe is exactly the
+     lip-sync case). The switch replaces the old section label. */
+  const audWrap = el("div", "gcast-audwrap");
+  const audHead = el("div", "gcast-audhead");
   const audLabel = el("div", "gcast-label", "Reference audio");
+  const audSeg = el("div", "gcast-seg mini");
+  const btnARef = el("button", null, "Reference");
+  const btnALine = el("button", null, "Timeline");
+  btnARef.title = "The audio slots are references: H3 hears them and you point at "
+    + "them with @audio in the prompt. The clip's own soundtrack is generated.";
+  btnALine.title = "The audio slots are placed IN the clip: each one is held at the "
+    + "time you set, untouched, and H3 generates its own sound in the gaps. "
+    + "No @audio tokens — describe the sound in words.";
+  audSeg.append(btnARef, btnALine);
+  const audNote = el("div", "gcast-need");
+  audHead.append(audLabel, audSeg, audNote);
+  const audLane = el("div", "gcast-lane");
   const audGrid = el("div", "gcast-grid med");
-  refWrap.append(imgLabel, imgGrid, el("div", null, ""), vidLabel, vidGrid, el("div", null, ""), audLabel, audGrid);
+  audWrap.append(audHead, audLane, audGrid);
+
+  /* Drop an audio file straight on the lane: it goes into the first empty
+     audio slot, placed where it was released, trimmed to the room left in the
+     clip. Switches to Timeline if the slots were references - dropping on
+     the clip's own time only means one thing. */
+  audLane.addEventListener("dragover", (e) => {
+    const k = dragKind(e);
+    if (k === null) return;
+    e.preventDefault(); e.stopPropagation();
+    audLane.classList.toggle("drop", k === "" || k === "audio");
+  });
+  audLane.addEventListener("dragleave", (e) => {
+    if (!audLane.contains(e.relatedTarget)) audLane.classList.remove("drop");
+  });
+  audLane.addEventListener("drop", async (e) => {
+    const k = dragKind(e);
+    if (k === null) return;
+    e.preventDefault(); e.stopPropagation();
+    audLane.classList.remove("drop");
+    const f = Array.from(e.dataTransfer?.files || [])[0];
+    if (!f) return;
+    if (fileKind(f) && fileKind(f) !== "audio") { flashWrong(audLane); return; }
+    const slot = st.slots.audios.find((sl) => !sl.file);
+    if (!slot) {
+      console.warn("[H3 Studio] the three audio slots are full - clear one to drop another");
+      flashWrong(audLane);
+      return;
+    }
+    const clipSecs = alignFrames(st.length) / FPS;
+    const bed = audLane.querySelector(".bed");
+    let at = 0;
+    if (bed) {
+      const r = bed.getBoundingClientRect();
+      at = ((e.clientX - r.left) / Math.max(1, r.width)) * clipSecs;
+    }
+    at = snapF(Math.min(Math.max(0, at), Math.max(0, clipSecs - 1 / FPS)));
+    try {
+      const name = await uploadFile(f);
+      clearSlot(slot);
+      slot.file = name;
+      const d = await probeDuration(viewURL(name), false);
+      slot.dur = d; slot.start = 0; slot.end = d; slot.at = at;
+      if (st.mode !== "fl2va") st.audio_mode = "timeline";
+      fitPlaced(slot);
+      render(); commit();
+    } catch (err) {
+      console.error("[H3 Studio] could not place the dropped audio:", err);
+      flashWrong(audLane);
+    }
+  });
+  const setAudioMode = (m) => (e) => {
+    e.stopPropagation();
+    if (st.audio_mode === m) return;
+    st.audio_mode = m;
+    /* going to the timeline: long audios already loaded fit the clip too */
+    if (m === "timeline") st.slots.audios.forEach(fitPlaced);
+    render(); commit();
+  };
+  btnARef.onclick = setAudioMode("ref");
+  btnALine.onclick = setAudioMode("timeline");
   refWrap.style.display = "flex";
   refWrap.style.flexDirection = "column";
   refWrap.style.gap = "6px";
@@ -1866,7 +2222,7 @@ function buildUI(node) {
   }
   window.addEventListener("resize", () => syncGutter());
 
-  root.append(bar, tl, modeBar, row, flWrap, refWrap, pWrap);
+  root.append(bar, tl, modeBar, row, flWrap, refWrap, audWrap, pWrap);
   /* the strip is laid out in pixels, so it has to be re-measured whenever the
      node is resized -- there is no CSS that can do proportional-with-a-floor */
   if (window.ResizeObserver) new ResizeObserver(() => paintTimeline()).observe(tlView);
@@ -2111,6 +2467,20 @@ function buildUI(node) {
     });
   }
 
+  /* A placed audio longer than the room left in the clip is trimmed to fit,
+     so its block's right edge sits on the clip's end instead of running past
+     it: dragging that edge then shortens it visibly from the first pixel.
+     Only on the timeline - a reference audio keeps its whole length. */
+  function fitPlaced(slot) {
+    if (!audioPlaced(st) || st.slots.audios.indexOf(slot) < 0 || !(slot.dur > 0)) return;
+    const clipSecs = alignFrames(st.length) / FPS;
+    const room = Math.max(1 / FPS, clipSecs - Math.max(0, +slot.at || 0));
+    const start = Math.max(0, +slot.start || 0);
+    if ((+slot.end || slot.dur) - start > room + 1e-3) {
+      slot.end = Math.min(slot.dur, snapF(start + room));
+    }
+  }
+
   async function assign(slot, file, kind, token) {
     const name = await uploadFile(file);
     clearSlot(slot);
@@ -2119,6 +2489,7 @@ function buildUI(node) {
       const d = await probeDuration(viewURL(name), kind === "video");
       slot.dur = d; slot.start = 0; slot.end = d;
       if (kind === "video") slot.audio = true;
+      fitPlaced(slot);
     }
     render(); commit();
     /* Dropped or picked clips skip the adopt route entirely, so they arrive
@@ -2130,7 +2501,7 @@ function buildUI(node) {
       /* A clip dropped straight on CONTINUE FROM is a continuation like any
          other, so it gets the seam reference the adopt route gets. Pin the
          guide window first so both land on the same tail. */
-      const win = tailWindow(slot.dur || 0, 22);
+      const win = tailWindow(slot.dur || 0, overlapFrames());
       slot.start = win.start; slot.end = win.end;
       await carrySeamRef({ mirror: slot }, win);
       render(); commit();
@@ -2246,6 +2617,10 @@ function buildUI(node) {
     const name = d.subfolder ? `${d.subfolder}/${d.name}` : d.name;
     clearSlot(slot);
     slot.file = name;
+    /* Remember the render this copy came from, so the node can find the
+       latent Glide Video saved next to it. */
+    slot.origin = { name: String(pick.name || ""), subfolder: String(pick.subfolder || ""),
+                    type: pick.type === "temp" ? "temp" : "output" };
     /* Ask the browser first; fall back to the server's reading. The browser
        reports 0 for anything it cannot decode, and HEVC 4:4:4 in Matroska --
        what the high-fidelity preset writes -- is exactly that case. Without a
@@ -2422,9 +2797,9 @@ function buildUI(node) {
       await adoptInto(slot, pick);
       /* Pin the guide's window here rather than leaving it to render()'s
          normalisation, so the seam reference has a window to mirror. */
-      const win = tailWindow(slot.dur || 0, 22);
+      const win = tailWindow(slot.dur || 0, overlapFrames());
       slot.start = win.start; slot.end = win.end;
-      if (slot === st.cont) await carrySeamRef(pick, win);
+      if (slot === st.cont) await carrySeamRef({ mirror: slot }, win);
       render(); commit();
     } catch (err) {
       console.error("[H3 Studio] could not adopt the last render:", err);
@@ -2439,7 +2814,7 @@ function buildUI(node) {
        with different jobs, and picking several files into it means nothing. */
     const multi = imgIndex != null;
     node_.addEventListener("click", async (e) => {
-      if (e.target.closest(".gcast-x, .gcast-track, .gcast-chk, .gcast-times, .gcast-quick")) return;
+      if (e.target.closest(".gcast-x, .gcast-track, .gcast-chk, .gcast-times, .gcast-quick, .gcast-place")) return;
       /* A press that turned into a reorder drag ends with a click on the card.
          Ignoring it is what stops the picker opening every time a picture moves. */
       if (Date.now() - lastDragEnd < 300) return;
@@ -2639,7 +3014,7 @@ function buildUI(node) {
   };
 
   /* dual-handle trim, in seconds, clamped to the clip's own duration */
-  function trim(slot, usedSeconds, isVideo, media, label, tailOnly) {
+  function trim(slot, usedSeconds, isVideo, media, label, tailOnly, onLive) {
     const wrap = el("div", "gcast-trim");
     const track = el("div", "gcast-track");
     const wave = el("canvas", "gcast-wave");
@@ -2722,16 +3097,42 @@ function buildUI(node) {
 
     /* transport: play only what is selected, and stop at the out point */
     let raf = 0;
+    /* True while a handle or the window is being dragged. Playback is then
+       steered by the drag (see audition) instead of being stopped by it -
+       moving the start past the playhead used to read as "out of range" and
+       pause, so every adjustment meant pressing play again. */
+    let adjusting = false;
     const stopAt = () => {
       if (!media || media.paused) return false;
       /* the out point is enforced here rather than on timeupdate, which
        * only fires ~4x a second and overshoots audibly */
       if (media.currentTime >= slot.end - 0.005 || media.currentTime < slot.start - 0.05) {
+        /* Audio loops the selection until paused: finding the exact spot is
+           listen, nudge, listen, and the loop is what makes that one motion.
+           A video thumbnail keeps its old stop-and-rewind. */
+        if (!isVideo || adjusting) {
+          media.currentTime = slot.start;
+          return false;
+        }
         media.pause();
         media.currentTime = slot.start;
         return true;
       }
       return false;
+    };
+    /* While playing, put the playhead where the drag is so you hear the spot
+       you are adjusting. Throttled: re-seeking every pointermove plays the
+       same few milliseconds over and over; four seeks a second plays short
+       snippets as you move and keeps playing wherever you stop. The end
+       handle auditions the last second up to the out point. */
+    let lastSeek = 0;
+    const audition = (t, force) => {
+      if (!media || media.paused) return;
+      const now = performance.now();
+      if (!force && now - lastSeek < 240) return;
+      lastSeek = now;
+      try { media.currentTime = Math.min(Math.max(slot.start, t), Math.max(slot.start, slot.end - 0.02)); }
+      catch (_) { /* not seekable yet */ }
     };
     const paintHead = () => {
       if (!media || media.paused || !dur) { head.style.display = "none"; return; }
@@ -2766,6 +3167,7 @@ function buildUI(node) {
     if (!Number.isFinite(slot.start) || slot.start < 0 || slot.start >= dur) slot.start = 0;
     if (!Number.isFinite(slot.end) || slot.end > dur || slot.end <= slot.start) slot.end = dur;
 
+    let painted = false;
     const paint = () => {
       if (!dur) return;
       if (timeInputs) {
@@ -2773,6 +3175,9 @@ function buildUI(node) {
         timeInputs.end.value = slot.end.toFixed(3);
         timeInputs.duration.value = (slot.end - slot.start).toFixed(3);
       }
+      /* the fields and the lane follow the trim as it moves, not on release */
+      if (painted && onLive) onLive();
+      painted = true;
       const a = (slot.start / dur) * 100, b = (slot.end / dur) * 100;
       span.style.left = a + "%"; span.style.width = Math.max(0, b - a) + "%";
       hA.style.left = a + "%"; hB.style.left = b + "%";
@@ -2835,6 +3240,7 @@ function buildUI(node) {
      * one seek per frame - seeking on every pointermove stutters. */
     let seekReq = 0;
     const seekPreview = (t) => {
+      if (media && !media.paused) { audition(t); return; }
       if (!media || media.tagName !== "VIDEO") return;
       cancelAnimationFrame(seekReq);
       seekReq = requestAnimationFrame(() => {
@@ -2855,7 +3261,7 @@ function buildUI(node) {
         if (isStart) slot.start = Math.min(t, slot.end - 0.25);
         else slot.end = Math.max(t, slot.start + 0.25);
         paint();
-        seekPreview(isStart ? slot.start : slot.end);
+        seekPreview(isStart ? slot.start : Math.max(slot.start, slot.end - 1.0));
       };
 
       /* LiteGraph's canvas consumes pointer/mouse moves, so listen in the
@@ -2868,6 +3274,7 @@ function buildUI(node) {
       const up = (e) => {
         if (!dragging) return;
         dragging = false;
+        adjusting = false;
         try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
         document.removeEventListener("pointermove", move, true);
         window.removeEventListener("pointerup", up, true);
@@ -2881,6 +3288,7 @@ function buildUI(node) {
         if (!dur) return;
         e.preventDefault(); e.stopPropagation();
         dragging = true;
+        adjusting = true;
         try { handle.setPointerCapture(e.pointerId); } catch (_) {}
         document.addEventListener("pointermove", move, true);
         window.addEventListener("pointerup", up, true);
@@ -2896,6 +3304,7 @@ function buildUI(node) {
         if (isStart) slot.start = Math.min(Math.max(0, slot.start + d), slot.end - 0.25);
         else slot.end = Math.max(Math.min(dur, slot.end + d), slot.start + 0.25);
         paint(); commit();
+        audition(isStart ? slot.start : Math.max(slot.start, slot.end - 1.0), true);
       });
     };
     /* A continuation window is not free to sit anywhere: it has to END on the
@@ -2943,6 +3352,7 @@ function buildUI(node) {
       const sUp = (e) => {
         if (!sliding) return;
         sliding = false;
+        adjusting = false;
         track.classList.remove("sliding");
         try { track.releasePointerCapture(e.pointerId); } catch (_) {}
         document.removeEventListener("pointermove", sMove, true);
@@ -2957,6 +3367,7 @@ function buildUI(node) {
         const t = timeAt(e.clientX);
         grabOff = (t >= slot.start && t <= slot.end) ? t - slot.start : 0;
         sliding = true;
+        adjusting = true;
         track.classList.add("sliding");
         try { track.setPointerCapture(e.pointerId); } catch (_) {}
         document.addEventListener("pointermove", sMove, true);
@@ -3020,6 +3431,463 @@ function buildUI(node) {
     return wrap;
   }
 
+  /* ============================================== timeline audio ==
+   *
+   * A placed audio slot is three numbers on top of the trim it already has:
+   * the trim says WHICH PART of the file (start..end), `at` says WHERE IN THE
+   * CLIP it lands, `hold` how hard it is pinned there. The fields, the lane
+   * and the readouts are all derived from those, so there is one truth and
+   * every control edits it.
+   *
+   * What reaches the clip is the trim cut short by the clip's end. The lane
+   * and the readout show that effective length, not the trimmed one, so what
+   * you see is what is held.
+   */
+  const LANE_TONES = 3;
+  const placeOf = (slot, clipSecs) => {
+    const dur = +slot.dur || 0;
+    const start = Math.max(0, +slot.start || 0);
+    const rawEnd = Number.isFinite(+slot.end) && +slot.end > start ? +slot.end : dur;
+    const end = dur ? Math.min(rawEnd, dur) : rawEnd;
+    const at = Math.max(0, +slot.at || 0);
+    const len = Math.max(0, end - start);
+    const room = Math.max(0, clipSecs - at);
+    return { dur, start, end, at, len, eff: Math.min(len, room), cut: len > room + 1e-3,
+             hold: Number.isFinite(+slot.hold) ? Math.min(1, Math.max(0, +slot.hold)) : 1 };
+  };
+  const snapF = (t) => Math.round(t * FPS) / FPS;
+
+  function placeFields(slot, clipSecs) {
+    const box = el("div", "gcast-place");
+    const p0 = placeOf(slot, clipSecs);
+    const stop = (e) => e.stopPropagation();
+    const live = [];                       /* [input, key of placeOf()] for sync() */
+    const field = (lab, val, min, max, step, title, onSet, key) => {
+      const w = el("label", "gcast-pf");
+      w.append(el("span", null, lab));
+      const n = el("input");
+      n.type = "number"; n.min = min; n.max = max; n.step = step;
+      n.value = (+val).toFixed(2);
+      if (key) live.push([n, key]);
+      n.title = title;
+      n.onpointerdown = stop;
+      n.onclick = stop;
+      n.onkeydown = (e) => { e.stopPropagation(); if (e.key === "Enter") n.blur(); };
+      n.onchange = () => {
+        const v = Math.min(+max, Math.max(+min, Number.isFinite(+n.value) ? +n.value : +val));
+        onSet(v); render(); commit();
+      };
+      w.append(n);
+      w.onpointerdown = stop;
+      return w;
+    };
+    const maxIn = Math.max(0.05, p0.dur);
+    box.append(
+      field("at", p0.at, 0, Math.max(0, clipSecs - 1 / FPS), 0.01,
+        "Where in this clip the sound starts, in seconds",
+        (v) => { slot.at = snapF(v); }, "at"),
+      field("from", p0.start, 0, Math.max(0, maxIn - 0.05), 0.01,
+        "Where in the FILE to start. The length is kept — the window slides",
+        (v) => { const len = p0.len; slot.start = v; slot.end = Math.min(maxIn, v + len); }, "start"),
+      field("to", p0.end, 0.05, maxIn, 0.01,
+        "Where in the file to stop",
+        (v) => { slot.end = Math.max(p0.start + 0.05, v); }, "end"),
+      field("len", p0.len, 0.05, maxIn, 0.01,
+        "How long the piece is. Moves ‘to’",
+        (v) => { slot.end = Math.min(maxIn, p0.start + v); }, "len"),
+      field("hold", p0.hold, 0, 1, 0.05,
+        "How hard it is held. 1 keeps it exactly, and Glide Join splices the "
+        + "original back in. Lower lets H3 rework it a little to sit with the picture.",
+        (v) => { slot.hold = Math.round(v * 100) / 100; }),
+    );
+    const read = el("div", "gcast-pread");
+    const paintRead = (q) => {
+      const past = q.at >= clipSecs - 1e-6;
+      read.classList.toggle("warn", q.cut || past);
+      read.textContent = past
+        ? `past the end of this ${fmtSecs(clipSecs)} clip`
+        : `in the clip ${fmtSecs(q.at)} → ${fmtSecs(q.at + q.eff)}`
+          + (q.cut ? " · cut at the clip's end" : "");
+    };
+    paintRead(p0);
+    box.append(read);
+    /* Called while the waveform trim is being dragged: the numbers follow
+       without rebuilding the card (which would end the drag). A field you
+       are typing in is left alone. */
+    box.sync = () => {
+      const q = placeOf(slot, clipSecs);
+      live.forEach(([n, k]) => {
+        if (document.activeElement !== n) n.value = (+q[k]).toFixed(2);
+      });
+      paintRead(q);
+    };
+    return box;
+  }
+
+  /* The lane: the clip's own time, 0 to its length, with every placed slot as
+     a block where it lands. Drag a block to move it in the clip, its right
+     edge to change its length, its left edge to trim its head (the sound
+     under the block stays put; the block just starts later). Everything
+     snaps to frames. The song, when there is one, runs underneath as a bar. */
+  let laneDrag = false;
+
+  /* ---- lane transport --------------------------------------------------
+   * Plays what THIS clip will hold: its window of the project song, with the
+   * placed timeline audio written over it where they overlap - the song ducks
+   * to (1 - hold) under each block, the same blend Glide Join splices. Gaps
+   * with no song are silent here; that is where H3 makes its own sound.
+   *
+   * The ruler doubles as the scrub bar. Click or drag it to move the head;
+   * play starts from the head, and when the clip ends the head goes back to
+   * where you pressed play, so a section can be auditioned over and over.
+   */
+  const laneBufs = new Map();               /* file -> Promise<AudioBuffer|null> */
+  let laneCtx = null;
+  const lanePlay = { on: false, busy: false, head: 0, from: 0, t0: 0, end: 0, nodes: [],
+                     raf: 0, gen: 0, sig: "", clip: null, btn: null, headEl: null };
+
+  function laneAudioCtx() {
+    if (!laneCtx) {
+      const C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return null;
+      laneCtx = new C();
+    }
+    return laneCtx;
+  }
+  function laneBuf(file) {
+    if (laneBufs.has(file)) return laneBufs.get(file);
+    /* a decoded song is big (about 90 MB for four minutes): keep the last few */
+    if (laneBufs.size >= 6) laneBufs.delete(laneBufs.keys().next().value);
+    const job = (async () => {
+      try {
+        const ctx = laneAudioCtx();
+        if (!ctx) return null;
+        const raw = await (await fetch(viewURL(file))).arrayBuffer();
+        return await ctx.decodeAudioData(raw);
+      } catch (e) {
+        console.warn("[H3 Studio] lane playback: could not decode", file, e);
+        return null;
+      }
+    })();
+    laneBufs.set(file, job);
+    return job;
+  }
+
+  function laneMix() {
+    const clipSecs = alignFrames(st.length) / FPS;
+    const placed = audioPlaced(st)
+      ? st.slots.audios.filter((sl) => sl.file && sl.dur)
+          .map((sl) => ({ file: sl.file, q: placeOf(sl, clipSecs) }))
+          .filter((x) => x.q.at < clipSecs && x.q.eff > 0)
+      : [];
+    return { clipSecs, song: songMeta(), placed };
+  }
+  const laneSig = (m) => JSON.stringify([m.clipSecs, m.song && [m.song.file, m.song.start],
+    m.placed.map((x) => [x.file, x.q.at, x.q.start, x.q.eff, x.q.hold])]);
+  const laneClipKey = () => { const c = clipMeta(); return c ? `${c.project}#${c.index}` : "-"; };
+
+  const laneNow = () => {
+    if (!lanePlay.on || lanePlay.busy || !laneCtx) return lanePlay.head;
+    return Math.min(lanePlay.end, lanePlay.from + Math.max(0, laneCtx.currentTime - lanePlay.t0));
+  };
+
+  const PLAY_ICON = '<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">'
+    + '<path fill="currentColor" d="M3 1.6v8.8L10.4 6z"/></svg>';
+  const PAUSE_ICON = '<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">'
+    + '<path fill="currentColor" d="M2.5 1.6h2.6v8.8H2.5zM6.9 1.6h2.6v8.8H6.9z"/></svg>';
+
+  function paintTransport() {
+    const b = lanePlay.btn;
+    if (b) {
+      b.innerHTML = lanePlay.on ? PAUSE_ICON : PLAY_ICON;
+      b.classList.toggle("busy", lanePlay.busy);
+      b.title = (lanePlay.on ? "Pause" : "Play this clip's audio")
+        + ` — head at ${fmtSecs(laneNow())}. Drag the ruler to move it.`;
+    }
+    placeLaneHead();
+  }
+  function placeLaneHead() {
+    const h = lanePlay.headEl;
+    if (!h) return;
+    const end = alignFrames(st.length) / FPS;
+    h.style.left = (Math.min(1, Math.max(0, laneNow() / end)) * 100) + "%";
+    h.classList.toggle("idle", !lanePlay.on);
+  }
+
+  function laneStop(keepHead) {
+    if (lanePlay.on && !lanePlay.busy && keepHead) lanePlay.head = laneNow();
+    lanePlay.gen++;
+    lanePlay.nodes.forEach((n) => {
+      try { if (n.stop) n.stop(); } catch (_) {}
+      try { n.disconnect(); } catch (_) {}
+    });
+    lanePlay.nodes = [];
+    if (lanePlay.raf) cancelAnimationFrame(lanePlay.raf);
+    lanePlay.raf = 0;
+    lanePlay.on = false; lanePlay.busy = false;
+    paintTransport();
+  }
+
+  async function laneStart(from) {
+    laneStop(false);
+    const m = laneMix();
+    if (!m.song && !m.placed.length) return;
+    const ctx = laneAudioCtx();
+    if (!ctx) return;
+    if (ctx.state === "suspended") { try { await ctx.resume(); } catch (_) {} }
+    if (!(from >= 0) || from >= m.clipSecs - 0.02) from = 0;
+    const gen = ++lanePlay.gen;
+    lanePlay.on = true; lanePlay.busy = true; lanePlay.head = from;
+    paintTransport();
+
+    const bufs = new Map();
+    const files = [...new Set([m.song && m.song.file, ...m.placed.map((x) => x.file)].filter(Boolean))];
+    await Promise.all(files.map(async (f) => bufs.set(f, await laneBuf(f))));
+    if (gen !== lanePlay.gen) return;              /* stopped or restarted meanwhile */
+
+    const t0 = ctx.currentTime + 0.06;
+    const nodes = [];
+    const master = ctx.createGain();
+    master.connect(ctx.destination);
+    nodes.push(master);
+    const play = (buf, when, offset, dur, out) => {
+      if (!buf || dur <= 0.005 || offset >= buf.duration) return;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(out);
+      src.start(when, Math.max(0, offset), Math.min(dur, buf.duration - offset));
+      nodes.push(src);
+    };
+
+    if (m.song) {
+      const g = ctx.createGain();
+      g.connect(master);
+      nodes.push(g);
+      g.gain.setValueAtTime(1, t0);
+      /* the placed audio is written over the song: duck it under each block */
+      m.placed.map((x) => [x.q.at - from, x.q.at - from + x.q.eff, 1 - x.q.hold])
+        .filter(([, b]) => b > 0)
+        .sort((u, v) => u[0] - v[0])
+        .forEach(([a, b, lvl]) => {
+          const ta = t0 + Math.max(0, a), tb = t0 + b;
+          if (a > 0.012) {
+            g.gain.setValueAtTime(1, ta - 0.012);
+            g.gain.linearRampToValueAtTime(lvl, ta);
+          } else {
+            g.gain.setValueAtTime(lvl, ta);
+          }
+          g.gain.setValueAtTime(lvl, tb);
+          g.gain.linearRampToValueAtTime(1, tb + 0.012);
+        });
+      play(bufs.get(m.song.file), t0, m.song.start + from, m.clipSecs - from, g);
+    }
+    m.placed.forEach((x) => {
+      const a = x.q.at - from;
+      const skip = Math.max(0, -a);
+      play(bufs.get(x.file), t0 + Math.max(0, a), x.q.start + skip, x.q.eff - skip, master);
+    });
+
+    Object.assign(lanePlay, { busy: false, nodes, t0, from, end: m.clipSecs, sig: laneSig(m) });
+    const tick = () => {
+      if (gen !== lanePlay.gen) return;
+      if (laneNow() >= lanePlay.end - 1e-3) {
+        const back = lanePlay.from;
+        laneStop(false);
+        lanePlay.head = back;                      /* back to where play was pressed */
+        paintTransport();
+        return;
+      }
+      placeLaneHead();
+      lanePlay.raf = requestAnimationFrame(tick);
+    };
+    paintTransport();
+    lanePlay.raf = requestAnimationFrame(tick);
+  }
+
+  function wireLaneScrub(ruler) {
+    ruler.classList.add("scrub");
+    ruler.title = "Click or drag to move the play head";
+    ruler.addEventListener("pointerdown", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const was = lanePlay.on;
+      if (was) laneStop(true);
+      const end = alignFrames(st.length) / FPS;
+      const set = (x) => {
+        const r = ruler.getBoundingClientRect();
+        const t = ((x - r.left) / Math.max(1, r.width)) * end;
+        lanePlay.head = Math.round(Math.min(end, Math.max(0, t)) * FPS) / FPS;
+        paintTransport();
+      };
+      set(e.clientX);
+      try { ruler.setPointerCapture(e.pointerId); } catch (_) {}
+      const move = (ev) => { ev.preventDefault(); ev.stopPropagation(); set(ev.clientX); };
+      const up = () => {
+        ruler.removeEventListener("pointermove", move);
+        ruler.removeEventListener("pointerup", up);
+        ruler.removeEventListener("pointercancel", up);
+        if (was) laneStart(lanePlay.head);
+      };
+      ruler.addEventListener("pointermove", move);
+      ruler.addEventListener("pointerup", up);
+      ruler.addEventListener("pointercancel", up);
+    });
+  }
+
+  function paintLane() {
+    if (laneDrag) return;                 /* never rebuild under a drag */
+    const placed = audioPlaced(st);
+    const sm = songMeta();
+    const clipSecs = alignFrames(st.length) / FPS;
+    audLane.replaceChildren();
+    const show = placed || !!sm;
+    audLane.style.display = show ? "" : "none";
+    lanePlay.btn = null; lanePlay.headEl = null;
+    /* another clip on screen: its audio is not what was playing */
+    const key = laneClipKey();
+    if (lanePlay.clip !== key) { laneStop(false); lanePlay.head = 0; lanePlay.clip = key; }
+    if (!show) { laneStop(false); return; }
+
+    const ruler = el("div", "ruler");
+    const step = clipSecs > 12 ? 2 : 1;
+    for (let t = 0; t <= clipSecs + 1e-6; t += step) {
+      const tk = el("div", "tk");
+      tk.style.left = (t / clipSecs) * 100 + "%";
+      if (t > 0 && t < clipSecs - 0.4) tk.append(el("span", null, `${t}s`));
+      ruler.append(tk);
+    }
+    const bed = el("div", "bed");
+    const body = el("div", "lbody");
+    const headEl = el("div", "lhead");
+    body.append(ruler, bed, headEl);
+    const bPlay = el("button", "gcast-lplay");
+    bPlay.onpointerdown = (e) => e.stopPropagation();
+    bPlay.onclick = (e) => {
+      e.stopPropagation();
+      if (lanePlay.on) laneStop(true); else laneStart(lanePlay.head);
+    };
+    audLane.append(bPlay, body);
+    wireLaneScrub(ruler);
+    lanePlay.btn = bPlay; lanePlay.headEl = headEl;
+    lanePlay.head = Math.min(lanePlay.head, clipSecs);
+    /* edited while playing (a block moved, the length changed): carry on from
+       the same moment with the new mix */
+    if (lanePlay.on && !lanePlay.busy && laneSig(laneMix()) !== lanePlay.sig) {
+      laneStart(laneNow());
+    }
+    paintTransport();
+
+    if (sm) {
+      const sb = el("div", "song");
+      sb.textContent = `♪ song ${songClock(sm.start)} → ${songClock(sm.start + clipSecs)}`
+        + (sm.strength < 1 ? ` · hold ${sm.strength.toFixed(2)}` : "");
+      sb.title = "The project song, held over the whole clip. Timeline audio is "
+        + "written over it where they overlap.";
+      bed.append(sb);
+      bed.classList.add("withsong");
+    }
+    if (!placed) return;
+
+    /* Label the stretches H3 fills, each one where it is, so the label is never
+       under a block. Only gaps wide enough to read. With a song underneath
+       there are no gaps: the song holds them. */
+    if (!sm) {
+      const spans = st.slots.audios
+        .filter((sl) => sl.file && sl.dur)
+        .map((sl) => placeOf(sl, clipSecs))
+        .filter((q) => q.at < clipSecs && q.eff > 0)
+        .map((q) => [q.at, q.at + q.eff])
+        .sort((a, b) => a[0] - b[0]);
+      let t = 0;
+      const gaps = [];
+      for (const [a, b] of spans) { if (a > t) gaps.push([t, a]); t = Math.max(t, b); }
+      if (t < clipSecs) gaps.push([t, clipSecs]);
+      gaps.forEach(([a, b]) => {
+        if ((b - a) / clipSecs < 0.07) return;
+        const g = el("div", "gap", (b - a) / clipSecs > 0.2 ? "H3 generates" : "H3");
+        g.style.left = (a / clipSecs) * 100 + "%";
+        g.style.width = ((b - a) / clipSecs) * 100 + "%";
+        bed.append(g);
+      });
+    }
+
+    st.slots.audios.forEach((slot, i) => {
+      if (!slot.file || !slot.dur) return;
+      if (placeOf(slot, clipSecs).at >= clipSecs - 1e-6) return;
+      const b = el("div", `blk l${(i % LANE_TONES) + 1}`);
+      const ea = el("div", "edge a"), eb = el("div", "edge b");
+      const lbl = el("span", "lbl"), tip = el("span", "tip");
+      b.append(ea, lbl, tip, eb);
+      const pos = () => {
+        const q = placeOf(slot, clipSecs);
+        b.style.left = (q.at / clipSecs) * 100 + "%";
+        b.style.width = Math.max(0.6, (q.eff / clipSecs) * 100) + "%";
+        b.classList.toggle("cut", q.cut);
+        b.classList.toggle("soft", q.hold < 1);
+        lbl.textContent = `${i + 1}  ${String(slot.file).split("/").pop()}`;
+        tip.textContent = `${fmtSecs(q.at)} → ${fmtSecs(q.at + q.eff)}`;
+      };
+      b.tabIndex = 0;
+      b.title = `audio ${i + 1} — drag to move it in the clip, drag an edge to `
+        + "trim. Arrows nudge a frame, Shift a second.";
+      pos();
+      bed.append(b);
+
+      const timeAt = (clientX) => {
+        const r = bed.getBoundingClientRect();
+        return ((clientX - r.left) / Math.max(1, r.width)) * clipSecs;
+      };
+      const begin = (e, what) => {
+        e.preventDefault(); e.stopPropagation();
+        const q = placeOf(slot, clipSecs);
+        const t0 = timeAt(e.clientX);
+        /* the visible end: an old over-long trim would otherwise have to be
+           dragged back across all its hidden length before the block moved */
+        const s0 = { at: q.at, start: q.start, end: Math.min(q.end, q.start + q.eff), dur: q.dur };
+        laneDrag = true;
+        b.classList.add("drag");
+        try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
+        const move = (ev) => {
+          ev.preventDefault(); ev.stopPropagation();
+          const d = timeAt(ev.clientX) - t0;
+          if (what === "move") {
+            slot.at = snapF(Math.min(Math.max(0, s0.at + d), Math.max(0, clipSecs - 1 / FPS)));
+          } else if (what === "end") {
+            slot.end = Math.min(s0.dur, Math.max(s0.start + 1 / FPS, snapF(s0.end + d)));
+          } else {
+            /* trim the head: the sound under the block stays where it is */
+            let dd = snapF(d);
+            dd = Math.max(-Math.min(s0.at, s0.start), Math.min(dd, s0.end - s0.start - 1 / FPS));
+            slot.at = s0.at + dd;
+            slot.start = s0.start + dd;
+          }
+          pos();
+        };
+        const up = () => {
+          document.removeEventListener("pointermove", move, true);
+          document.removeEventListener("pointerup", up, true);
+          laneDrag = false;
+          b.classList.remove("drag");
+          render(); commit();
+        };
+        document.addEventListener("pointermove", move, true);
+        document.addEventListener("pointerup", up, true);
+      };
+      b.addEventListener("pointerdown", (e) => begin(e, "move"));
+      ea.addEventListener("pointerdown", (e) => begin(e, "head"));
+      eb.addEventListener("pointerdown", (e) => begin(e, "end"));
+      b.addEventListener("keydown", (e) => {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        e.preventDefault(); e.stopPropagation();
+        const d = (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 1 : 1 / FPS);
+        slot.at = snapF(Math.min(Math.max(0, (+slot.at || 0) + d), Math.max(0, clipSecs - 1 / FPS)));
+        render(); commit();
+        /* the lane was rebuilt: put focus back on this slot's block */
+        const again = audLane.querySelector(`.blk.l${(i % LANE_TONES) + 1}`);
+        if (again) again.focus();
+      });
+    });
+  }
+
   function mediaSlot(slot, kind, caption, token, usedSeconds, opts) {
     opts = opts || {};
     const card = el("div", "gcast-media" + (slot.file ? " filled" : "")
@@ -3034,6 +3902,10 @@ function buildUI(node) {
         + '<path d="M13 3h7a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1h-7v-2h6V5h-6V3z"/>'
         + '<path d="M11 7l5 5-5 5v-3H3v-4h8V7z"/></svg>';
       cap.append(ico);
+    }
+    if (opts.placed) {
+      /* the colour of this slot's block on the lane, so card and block pair up */
+      cap.append(el("span", `gcast-ldot l${((opts.n || 0) % 3) + 1}`));
     }
     cap.append(el("span", "n", caption));
     if (slot.file && token) cap.append(el("span", null, token));
@@ -3074,6 +3946,19 @@ function buildUI(node) {
         // silent hover preview, but only while the transport is not in use
         v.onmouseenter = () => { if (v.muted) v.play().catch(() => {}); };
         v.onmouseleave = () => { if (v.muted) { v.pause(); v.currentTime = slot.start || 0; } };
+        /* Park the thumbnail on the window's first frame. It used to show
+           frame 0, and a chained render is the whole film so far - so every
+           CONTINUE FROM looked like it held clip 1, when the window (the
+           green span) was really at the end. Show the frame that is used. */
+        const park = () => {
+          if (!v.paused) return;
+          const t = Math.max(0, +slot.start || 0);
+          if (t > 0 && Math.abs(v.currentTime - t) > 0.02) {
+            try { v.currentTime = t; } catch (_) { /* not seekable yet */ }
+          }
+        };
+        if (v.readyState >= 1) park();
+        else v.addEventListener("loadedmetadata", park, { once: true });
         body.append(v);
       } else body.append(el("div", "gcast-empty", "+"));
     } else {
@@ -3095,8 +3980,11 @@ function buildUI(node) {
          it is \u2014 and with a project full of MiniMax_H3_00xxx renders that is
          the part you need. */
       const label = slot.file.split("/").pop();
+      const fields = (opts.placed && kind === "audio") ? placeFields(slot, opts.clipSecs) : null;
+      const onLive = fields ? () => { fields.sync(); paintLane(); } : null;
       card.append(trim(slot, usedSeconds, kind === "video", media, label,
-                       !!opts.tailOnly));
+                       !!opts.tailOnly, onLive));
+      if (fields) card.append(fields);
     }
     if (slot.file && kind === "video") {
       const lab = el("label", "gcast-chk");
@@ -3106,20 +3994,23 @@ function buildUI(node) {
       card.append(lab);
     }
 
-    /* Levelling the carried frames onto their own last frame, before they are
-     * encoded. Measured on his renders: the model continues from the window's
-     * AVERAGE exposure, not its final frame, so a window ending darker than
-     * its average produced a brighter clip and vice versa. Off by default -
-     * with a true tail window the drift measured near zero, so this is for the
-     * case where it does not. */
-    if (slot.file && opts.cont) {
-      const lab2 = el("label", "gcast-chk");
-      const cb2 = el("input"); cb2.type = "checkbox"; cb2.checked = !!slot.flatten;
-      cb2.onchange = () => { slot.flatten = cb2.checked; render(); commit(); };
-      lab2.append(cb2, el("span", null, "level exposure to the last frame"));
-      lab2.title = "Only if the extension comes back brighter or darker than the "
-                 + "clip it continues from";
-      card.append(lab2);
+    /* LATENT HOLD. Node-level (see commit): continue from the previous
+     * clip's saved latent instead of re-encoding its decoded tail. Needs the
+     * first sampler's LATENT wired into Glide Video, which saves it next to
+     * the video; without that file the node falls back to the guide. */
+    if (opts.cont) {
+      const lab3 = el("label", "gcast-chk");
+      const cb3 = el("input"); cb3.type = "checkbox";
+      cb3.checked = latentHoldOn();
+      cb3.onchange = () => { node.properties.gcast_cont_latent = cb3.checked; render(); commit(); };
+      lab3.append(cb3, el("span", null, "latent hold (exact seam)"));
+      lab3.onpointerdown = (e) => e.stopPropagation();
+      lab3.title = "Continue from the previous clip's own latent, held in the head "
+                 + "of this one, instead of re-encoding its decoded frames. Wire the "
+                 + "first sampler's LATENT into Glide Video so it saves a .h3latent "
+                 + "beside the clip. Falls back to the normal guide when there is "
+                 + "none. Applies to every linked clip.";
+      card.append(lab3);
     }
 
     wireDrop(body || card, slot, kind, kind === "video" ? ACCEPT_VIDEO : ACCEPT_AUDIO, token);
@@ -3128,7 +4019,9 @@ function buildUI(node) {
 
   /* ----------------------------------------------------------- render */
 
+  let songStamp = null;   /* see syncSongBits */
   function render() {
+    try { songStamp = JSON.stringify([songMeta(), alignFrames(st.length)]); } catch (e) {}
     try { renderInner(); }
     catch (e) { console.error("[H3 Studio] render failed:", e); }
     /* the strip reads the live state for the current clip, so a length change
@@ -3169,6 +4062,23 @@ function buildUI(node) {
     selLen.value = LENGTH_PRESETS.includes(frames) ? String(frames) : "custom";
     inLen.value = frames;
     lenNote.innerHTML = `<b>${frames} frames</b> · ${fmtSecs(frames / FPS)} at 24 fps`;
+    {
+      /* The window of the song this clip will lock, so it can be checked
+         before a render rather than heard after one. */
+      const sm = songMeta();
+      if (sm) {
+        const sg = songOf();
+        const end = sm.start + frames / FPS;
+        const past = sg && sg.dur > 0 && sm.start >= sg.dur;
+        const tail = sg && sg.dur > 0 && !past && end > sg.dur + 0.05;
+        lenNote.innerHTML += `<div class="gcast-songwin${past || tail ? " warn" : ""}">`
+          + `♪ ${songClock(sm.start)} → ${songClock(end)} locked`
+          + (sm.strength < 1 ? ` at ${sm.strength.toFixed(2)}` : "")
+          + (past ? " · past the end of the song" : "")
+          + (tail ? " · song ends inside this clip" : "")
+          + `</div>`;
+      }
+    }
 
     bMatch.setAttribute("aria-pressed", String(st.ref_image_size === "match"));
     bMax.setAttribute("aria-pressed", String(st.ref_image_size === "max"));
@@ -3202,7 +4112,7 @@ function buildUI(node) {
     ta.style.minHeight = expanded ? "0px" : (isFL ? PROMPT_H_FL : PROMPT_H_REF) + "px";
     bExpand.textContent = expanded ? "⤢ Collapse" : "⤡ Expand";
     pWrap.classList.toggle("gcast-promptlayer", expanded);
-    root.style.minHeight = contentH + "px";
+    root.style.minHeight = "";
     if (expanded) {
       placeLayer();
     } else {
@@ -3244,15 +4154,29 @@ function buildUI(node) {
         imgGrid.append(card);
       });
       st.slots.videos.forEach((slot, i) => vidGrid.append(mediaSlot(slot, "video", `video ${i + 1}`, `@video${i + 1}`, usedSeconds)));
-      st.slots.audios.forEach((slot, i) => audGrid.append(mediaSlot(slot, "audio", `audio ${i + 1}`, `@audio${i + 1}`, null)));
     }
+
+    /* Audio, both modes. */
+    const placed = audioPlaced(st);
+    audSeg.style.display = isFL ? "none" : "";
+    btnARef.setAttribute("aria-pressed", String(!placed));
+    btnALine.setAttribute("aria-pressed", String(placed));
+    audLabel.textContent = placed ? "Timeline audio" : "Reference audio";
+    audWrap.classList.toggle("placed", placed);
+    audNote.textContent = placed
+      ? (isFL ? "held in the clip · H3 fills the gaps" : "held in the clip · H3 fills the gaps · no @audio tokens")
+      : "";
+    st.slots.audios.forEach((slot, i) => audGrid.append(
+      mediaSlot(slot, "audio", `audio ${i + 1}`, placed ? null : `@audio${i + 1}`, null,
+                { placed, clipSecs: usedSeconds, n: i })));
+    paintLane();
 
     /* A freshly dropped clip arrives as its full range, which is never what a
      * continuation wants. Snap it to the last 22 frames - the tested window -
      * or to the largest grid run the clip can actually supply. */
     const c = st.cont;
     if (c.file && c.dur && (c.start || 0) <= 0.001 && (c.end || 0) >= c.dur - 0.001) {
-      const w = tailWindow(c.dur, 22);
+      const w = tailWindow(c.dur, overlapFrames());
       c.start = w.start; c.end = w.end;
     }
     /* No section of its own: it joins the row that is already on screen, so the
@@ -3266,7 +4190,7 @@ function buildUI(node) {
     renderTags();
     renderCheck();
     paintPresetName();
-    node.h3MinHeight = st.mode === "fl2va" ? MIN_H_FL : MIN_H_REF;
+    node.h3MinHeight = contentH + chromeH();
   }
 
   function renderCheck() {
@@ -3802,7 +4726,15 @@ function buildUI(node) {
       });
       if (silent) pres.append(el("span", "gcast-warn", `· ${silent} never mentioned in the prompt`));
     }
-    const orphans = ALL_TOKENS.filter((t) => !tags[t] && hasToken(t));
+    const placedToks = audioPlaced(st)
+      ? st.slots.audios.map((a, n) => (a.file ? `@audio${n + 1}` : null))
+          .filter((t) => t && hasToken(t))
+      : [];
+    if (placedToks.length) {
+      pres.append(el("span", "gcast-warn",
+        `· ${placedToks.join(" ")} is on the timeline, not a reference — dropped; describe the sound in words`));
+    }
+    const orphans = ALL_TOKENS.filter((t) => !tags[t] && hasToken(t) && placedToks.indexOf(t) < 0);
     if (orphans.length) {
       pres.append(el("span", "gcast-warn", `· ${orphans.join(" ")} points at an empty slot`));
       pres.append(el("span", "arrow", "then the prompt"));
@@ -4510,7 +5442,11 @@ function buildUI(node) {
           `state, so pressing Revert again brings it back.`)) return;
     stash();
     const now = projSnapshot();
+    const keepSong = node.properties.gcast_project && node.properties.gcast_project.song;
     node.properties.gcast_project = { name: b.name || "", idx: b.idx, shots: clone(b.shots) };
+    /* The song is a project setting, not part of the clip list the snapshot
+       holds - Revert puts the clips back and leaves the track where it is. */
+    if (keepSong) node.properties.gcast_project.song = keepSong;
     if (now) {
       node.properties.gcast_project_prev = {
         why: "before Revert", at: Date.now(),
@@ -4758,6 +5694,9 @@ function buildUI(node) {
       d.style.setProperty("--c", c);
       d.style.setProperty("--cg", c + "5c");
       d.style.setProperty("--cw", c + "24");
+      d.style.setProperty("--cgs", c + "b0");   // selected: same colour, louder
+      d.style.setProperty("--cws", c + "5e");
+      d.style.setProperty("--cfs", c + "26");
       d.title = shotLabel(vsh, 0) + " \u2014 " + fmtSecs(b.sec)
               + "  \u2014 the current setup. + adds a second clip and starts a project.";
       d.append(el("div", "nm", shotLabel(vsh, 0)));
@@ -4802,6 +5741,9 @@ function buildUI(node) {
       d.style.setProperty("--c", c);            // solid edge down the left
       d.style.setProperty("--cg", c + "5c");    // bloom hugging that edge
       d.style.setProperty("--cw", c + "24");    // wash, fades out to the right
+      d.style.setProperty("--cgs", c + "b0");   // selected: same colour, louder
+      d.style.setProperty("--cws", c + "5e");
+      d.style.setProperty("--cfs", c + "26");
       d.dataset.clip = String(b.i);
       /* The hover names the current state as well as the action, so it reads
          the same whichever way the clip is set: you should not have to work
@@ -5352,6 +6294,7 @@ function buildUI(node) {
      that was backgrounded, and every frontend version. A render is a minute or
      more, so a second between checks costs nothing. */
   async function waitForPrompt(id) {
+    let polls = 0, missing = 0;
     for (;;) {
       if (run && run.cancel) throw new Error("cancelled");
       await sleep(1200);
@@ -5363,7 +6306,24 @@ function buildUI(node) {
           entry = h && h[id];
         }
       } catch (e) { /* server busy or restarting: try again */ }
-      if (!entry) continue;
+      if (!entry) {
+        /* A resumed run waits on a prompt id queued before a reload. If
+           ComfyUI restarted in between, that prompt is gone from the queue
+           AND the history, and waiting would never end. Checked every ~15s,
+           and only called lost after three misses in a row. */
+        if (++polls % 12 === 0) {
+          try {
+            const q = await (await api.fetchApi("/queue")).json();
+            const ids = [].concat(q.queue_running || [], q.queue_pending || []).map((x) => x && x[1]);
+            missing = ids.includes(id) ? 0 : missing + 1;
+          } catch (e) { /* cannot tell: keep waiting */ }
+          if (missing >= 3) {
+            throw new Error("the render queued for this clip is no longer in ComfyUI's queue "
+                          + "or history (was ComfyUI restarted?). Render from this clip again.");
+          }
+        }
+        continue;
+      }
       const s = entry.status || {};
       if (s.status_str === "error") throw new Error("the render failed - see the console");
       if (s.completed || s.status_str === "success") return entry;
@@ -5391,7 +6351,15 @@ function buildUI(node) {
           /* The master sits in output/ even when the proxy it came with is a
              temp file, so the type of the entry does not describe it. */
           if (typeof item.master === "string" && VIDEO_OUT_RE.test(item.master)) {
-            best = { name: item.master, subfolder: item.subfolder || "", type: "output" };
+            /* Glide Video now says where the master is. An older build only
+               named it, and the entry's own subfolder is the PROXY's (the
+               temp root) - reading that as the master's folder sent the
+               adopt to output/<name>, which is an older render whenever a
+               project writes into a folder of its own. */
+            const known = typeof item.master_subfolder === "string";
+            best = { name: item.master,
+                     subfolder: known ? item.master_subfolder : (item.subfolder || ""),
+                     type: (typeof item.master_type === "string" && item.master_type) || "output" };
             continue;
           }
           if (typeof item.filename !== "string") continue;
@@ -5414,6 +6382,62 @@ function buildUI(node) {
     }
     return best;
   }
+
+  /* Record a clip's render however it was queued. Render all wrote lastOut
+     only for renders IT queued, so a clip re-rendered with ComfyUI's own
+     Queue button kept pointing at its older render - and the next linked
+     clip took that older tail, same length, wrong content. Now every
+     finished prompt is read back: the h3_data it was queued with says which
+     clip of which project it was, and that clip's lastOut moves to it. */
+  const onPromptDone = async (ev) => {
+    const id = ev && ev.detail && (ev.detail.prompt_id || ev.detail);
+    if (typeof id !== "string") return;
+    try {
+      const g = app.graph;
+      if (g && typeof g.getNodeById === "function" && node.id != null
+          && g.getNodeById(node.id) !== node) return;      /* a stale instance */
+    } catch (e) { /* cannot tell: carry on */ }
+    let entry = null;
+    for (let tries = 0; tries < 5 && !entry; tries++) {
+      try {
+        const r = await api.fetchApi(`/history/${id}`);
+        if (r.status === 200) { const h = await r.json(); entry = h && h[id]; }
+      } catch (e) { /* busy: retry */ }
+      if (!entry) await sleep(400);
+    }
+    if (!entry) return;
+    const graph = Array.isArray(entry.prompt) ? entry.prompt[2] : null;
+    if (!graph || typeof graph !== "object") return;
+    /* Ours by id first; a subgraph id or a pasted copy falls back to the only
+       H3 Studio in the prompt. */
+    let mine = graph[String(node.id)];
+    if (!(mine && mine.class_type === NODE_ID)) {
+      const all = Object.values(graph).filter((n) => n && n.class_type === NODE_ID);
+      mine = all.length === 1 ? all[0] : null;
+    }
+    const raw = mine && mine.inputs && mine.inputs.h3_data;
+    if (typeof raw !== "string") return;
+    let clip = null, isUp = false;
+    try { const d = JSON.parse(raw); clip = d.clip; isUp = !!d.upscale; } catch (e) { return; }
+    if (!clip || !(clip.index >= 1)) return;
+    const p = proj();
+    const sh = p.shots[clip.index - 1];
+    if (!sh) return;
+    if (String(p.name || "").trim() !== String(clip.project || "").trim()) return;
+    if (clip.count && clip.count !== p.shots.length) return;
+    const out = videoFromHistory(entry);
+    if (!out) return;
+    const key = isUp ? "lastUp" : "lastOut";
+    const was = sh[key] && sh[key].name;
+    sh[key] = { name: out.name, subfolder: out.subfolder || "", type: out.type || "output" };
+    if (was !== out.name) {
+      console.log(`[H3 Studio] ${shotLabel(sh, clip.index - 1)} `
+                + `${isUp ? "upscaled" : "rendered"} \u2192 ${out.name}`
+                + (was ? ` (was ${was})` : ""));
+    }
+    commit();
+  };
+  api.addEventListener("execution_success", onPromptDone);
 
   function paintRun() {
     if (!run) {
@@ -5531,6 +6555,38 @@ function buildUI(node) {
       return;
     }
 
+    if (upscaleOn()) {
+      /* Upscale pass: no CONTINUE FROM, no seam or look references - the
+         takes are already made. Each clip needs its draft render (whose
+         .h3full is loaded); a linked one also needs the clip before it
+         upscaled, in this run or an earlier one. */
+      const inRunU = new Set(queue);
+      const noDraft = queue.filter((i) => !p.shots[i].lastOut);
+      if (noDraft.length) {
+        alert("H3 Studio upscale pass: these clips have no draft render recorded, "
+              + "so there is no latent to upscale:\n\n"
+              + noDraft.map((i) => shotLabel(p.shots[i], i)).join(", ")
+              + "\n\nRender their drafts first (save_latent = full), or narrow the scope.");
+        return;
+      }
+      const orphanU = queue.find((i) => i > 0 && p.shots[i].link && !inRunU.has(i - 1)
+                                       && !p.shots[i - 1].lastUp);
+      if (orphanU !== undefined) {
+        const a = shotLabel(p.shots[orphanU - 1], orphanU - 1);
+        const go = confirm(`${shotLabel(p.shots[orphanU], orphanU)} is linked to ${a}, `
+          + `which has not been upscaled yet, so it will come out unjoined.\n\n`
+          + `Widen the scope to include ${a} to get the joined chain. Upscale anyway?`);
+        if (!go) return;
+      }
+      snapProject("before upscale pass");
+      await runLoop({
+        v: 1, id: uid(), t: Date.now(), scope, look: false, links: 0, queue, upscale: true,
+        skipped: range.length - queue.length, startIdx: p.idx,
+        k: 0, promptId: null, made: [],
+      }, false);
+      return;
+    }
+
     /* Refuse up front rather than three clips in. A linked clip needs either
        its neighbour rendered earlier in this run, a recorded last render of
        that neighbour, or a CONTINUE FROM already filled (a project from before
@@ -5573,11 +6629,127 @@ function buildUI(node) {
                 + `queued clip${cleared === 1 ? "" : "s"}`);
     }
     stash();
-    const startIdx = p.idx;
-    run = { cancel: false, force: false, waiters: [], i: queue[0], k: 0,
-            total: queue.length, skipped: range.length - queue.length,
-            scope, look, links, cleared, note: "", made: [] };
+    /* Start clean: the seam reference and CONTINUE FROM left by an older run
+       are cleared on every clip about to render, so nothing stale is sent
+       again. This run refills what it needs. Videos 1 and 2 are never touched. */
+    let swept = 0;
+    queue.forEach((i) => {
+      const s = p.shots[i] && p.shots[i].state;
+      if (!s || !s.slots || !Array.isArray(s.slots.videos)) return;
+      /* Only the seam reference, which Render puts in video 3 by itself.
+         Videos 1 and 2 are left alone whatever is in them: they are loaded
+         by hand (a look carry from the "last render" button is a choice too),
+         and Render's own "+ look" overwrites video 1 when it is on anyway. */
+      s.slots.videos = s.slots.videos.map((v) => {
+        if (v && v.file && v.seam) { swept++; return {}; }
+        return v;
+      });
+      /* CONTINUE FROM too: an unlinked clip must not continue from anything,
+         and a linked one is refilled from its neighbour's render below. The
+         one exception is a linked clip whose neighbour has no recorded render
+         and is not in this run - its slot is the only source it has (a
+         project from before renders were recorded), so it stays. */
+      const c = s.cont;
+      if (c && c.file) {
+        const sh = p.shots[i];
+        const canRefill = i > 0 && (inRun.has(i - 1) || !!p.shots[i - 1].lastOut);
+        if (!sh.link || canRefill) { s.cont = {}; swept++; }
+      }
+    });
+    if (swept) {
+      console.log(`[H3 Studio] Render: cleared ${swept} slot${swept === 1 ? "" : "s"} `
+                + "(references and CONTINUE FROM) left by an earlier run");
+      if (p.shots[p.idx]) load(JSON.stringify(p.shots[p.idx].state));
+      commit();
+    }
+    await runLoop({
+      v: 1, id: uid(), t: Date.now(), scope, look, links, queue, cleared,
+      skipped: range.length - queue.length, startIdx: p.idx,
+      k: 0, promptId: null, made: [],
+    }, false);
+  }
+
+  /* ---------------------------------------------- resumable runs ----
+   *
+   * A Render all used to live only in this page's memory. Chrome discards
+   * heavy background tabs (Memory Saver) and reloads them on return, and the
+   * frontend can rebuild a node; either way the run, its overlay and its
+   * progress vanished and nothing rendered past the clip already queued.
+   *
+   * Now the run is written down after every step - which clips, which one is
+   * on the sampler, and that render's prompt id in ComfyUI's queue - in the
+   * tab's sessionStorage (survives a reload and a discard) together with the
+   * project, plus a copy in node.properties. A freshly built panel looks for
+   * it, puts the overlay back, waits for the render that was already queued,
+   * records it, and carries on.
+   *
+   * Ownership: one panel drives a run at a time. A rebuilt node claims it; the
+   * old loop, if it is still alive in this page, sees it has lost the claim
+   * after its current await and steps aside without touching anything.
+   */
+  const uiToken = uid();
+  window.__h3RunOwner = window.__h3RunOwner || {};
+  const runKey = () => `h3studio-run:${node.id}`;
+  const RUN_MAX_AGE = 12 * 3600 * 1000;
+
+  function saveRun(state) {
+    state.t = Date.now();
+    try {
+      sessionStorage.setItem(runKey(), JSON.stringify({
+        state, project: node.properties && node.properties.gcast_project }));
+    } catch (e) { /* storage full or blocked: node.properties still has it */ }
+    node.properties = node.properties || {};
+    node.properties.gcast_run = clone(state);
+  }
+  function clearRun() {
+    try { sessionStorage.removeItem(runKey()); } catch (e) { /* nothing to clear */ }
+    if (node.properties) delete node.properties.gcast_run;
+  }
+  const claimRun = (id) => { window.__h3RunOwner[id] = uiToken; };
+  const ownsRun = (id) => {
+    if (window.__h3RunOwner[id] !== uiToken) return false;
+    try {
+      const g = app.graph;
+      if (g && typeof g.getNodeById === "function" && node.id != null && node.id >= 0) {
+        return g.getNodeById(node.id) === node;
+      }
+    } catch (e) { /* cannot tell: assume we still own it */ }
+    return true;
+  };
+
+  /* Called once the panel has its workflow state (see onConfigure). */
+  function tryResume() {
+    if (run) return;
+    let saved = null;
+    try { saved = JSON.parse(sessionStorage.getItem(runKey()) || "null"); } catch (e) { saved = null; }
+    const state = (saved && saved.state) || (node.properties && node.properties.gcast_run) || null;
+    if (!state || !Array.isArray(state.queue) || !state.queue.length) return;
+    if (!(state.t > 0) || Date.now() - state.t > RUN_MAX_AGE || state.k >= state.queue.length) {
+      clearRun();
+      return;
+    }
+    /* The saved project is the run's own, written at its last step - newer
+       than whatever the workflow autosave caught. */
+    if (saved && saved.project && Array.isArray(saved.project.shots)) {
+      node.properties.gcast_project = saved.project;
+      const p = proj();
+      if (p.shots[p.idx]) load(JSON.stringify(p.shots[p.idx].state));
+    }
+    console.log(`[H3 Studio] Render: resuming a run at clip ${state.k + 1} of `
+              + `${state.queue.length}` + (state.promptId ? ` (render ${state.promptId} already queued)` : ""));
+    runLoop(state, true);
+  }
+
+  async function runLoop(state, resumed) {
+    const p = proj();
+    const queue = state.queue;
+    claimRun(state.id);
+    run = { cancel: false, force: false, waiters: [], i: queue[state.k], k: state.k,
+            total: queue.length, skipped: state.skipped || 0, scope: state.scope,
+            look: state.look, links: state.links || 0, cleared: state.cleared || 0,
+            note: resumed ? "picking the run back up\u2026" : "", made: (state.made || []).slice() };
     paintRun();
+    saveRun(state);
 
     /* Every long await in the loop goes through here, so a second Stop press has
        something to interrupt. Without it the only cancellation point is between
@@ -5587,86 +6759,92 @@ function buildUI(node) {
       new Promise((_, rej) => { if (run) run.waiters.push(rej); }),
     ]);
 
-    let stopped = false;
+    let stopped = false, handedOver = false;
+    const look = state.look;
     try {
-      for (let k = 0; k < queue.length; k++) {
+      for (let k = state.k; k < queue.length; k++) {
+        if (!ownsRun(state.id)) { handedOver = true; break; }
         const i = queue[k];
-        run.i = i; run.k = k; run.note = ""; paintRun();
+        run.i = i; run.k = k; paintRun();
         switchTo(i);
         const sh = p.shots[i];
         const pred = i > 0 ? p.shots[i - 1] : null;
         const from = (pred && pred.lastOut) || null;
         const linked = !!(pred && sh.link);
 
-        if (linked && from) {
-          run.note = "taking the tail of " + shotLabel(pred, i - 1) + "\u2026"; paintRun();
-          const previous = shotLabel(pred, i - 1);
-          const current = shotLabel(sh, i);
-          const source = from.subfolder ? `${from.subfolder}/${from.name}` : from.name;
-          await raceCancel(adoptInto(st.cont, from, {
-            missingMessage: `${current} is linked to ${previous}, but ${previous}'s `
-              + `recorded render "${source}" is missing from ComfyUI's output folder.\n\n`
-              + `Re-render ${previous} (or widen the render scope to include it), `
-              + `restore that file, or unlink ${current}.`,
-          }));
-          const win = tailWindow(st.cont.dur || 0, 22);
-          st.cont.start = win.start; st.cont.end = win.end;
-          run.note = "doubling the tail as a seam reference\u2026"; paintRun();
-          await raceCancel(carrySeamRef(from, win));
-          render(); commit(); stash();
-        } else if (linked) {
-          /* Passed the pre-flight, so the slot is already filled - a project
-             from before renders were recorded. Use what is there. */
-          if (!(st.cont && st.cont.file)) {
-            throw new Error(`${shotLabel(sh, i)} is linked but ${shotLabel(pred, i - 1)} `
-                          + "has no render to continue from");
-          }
-          console.log(`[H3 Studio] Render: ${shotLabel(sh, i)} is linked but no render of `
-                    + `${shotLabel(pred, i - 1)} is recorded \u2014 keeping the CONTINUE FROM `
-                    + `already set (${st.cont.file})`);
-        }
+        /* Already on the queue before a reload: wait for it, do not queue it again. */
+        let id = (k === state.k && state.promptId) ? state.promptId : null;
+        if (id) {
+          run.note = "waiting for the render queued before the reload\u2026"; paintRun();
+        } else {
+          state.k = k; state.promptId = null; saveRun(state);
+          run.note = "";
 
-        /* The look is for CUTS. A linked clip already has the guide at the
-           seam and the seam reference holding the subject past it; a look
-           reference from the same clip on top of those competes rather than
-           helps. Unlinked clips are where it is the only thread there is. */
-        if (!linked && look && pred) {
-          if (!from) {
-            console.log(`[H3 Studio] Render: no render of ${shotLabel(pred, i - 1)} recorded, `
-                      + `no look to carry into ${shotLabel(sh, i)}`);
-          } else {
-            /* Video slot 1 by convention, and cleared first: carrying into a
-               slot that already holds a hand-picked reference would silently
-               throw it away, so the slot is the look's to own for the run. */
-            run.note = "carrying the look from " + shotLabel(pred, i - 1) + "\u2026"; paintRun();
-            const slot = st.slots.videos[0];
-            const previous = shotLabel(pred, i - 1);
-            const current = shotLabel(sh, i);
-            const source = from.subfolder ? `${from.subfolder}/${from.name}` : from.name;
-            await raceCancel(adoptInto(slot, from, {
-              silent: true,
-              reference: true,
-              missingMessage: `${current} is carrying the look from ${previous}, but `
-                + `${previous}'s recorded render "${source}" is missing from ComfyUI's `
-                + `output folder.\n\nRe-render ${previous} (or widen the render scope to `
-                + `include it), restore that file, or turn off + look for this render.`,
+          if (state.upscale) {
+            /* nothing to prepare: the node loads the take's own latent */
+          } else if (linked && from) {
+            run.note = "taking the tail of " + shotLabel(pred, i - 1) + "\u2026"; paintRun();
+            await raceCancel(adoptInto(st.cont, from, {
+              missingMessage: `${shotLabel(sh, i)} is linked to ${shotLabel(pred, i - 1)}, but its recorded render is missing. Re-render/include the predecessor, restore its file, or unlink this clip.`,
             }));
-            slot.carry = true;
-            run.note = "choosing the clearest window\u2026"; paintRun();
-            const got = await raceCancel(applySmartSpan(slot));
-            if (got) {
-              console.log(`[H3 Studio] Render: carry window `
-                        + `${got.start.toFixed(2)}s..${got.end.toFixed(2)}s `
-                        + `(${got.frames}f, score ${got.score})`
-                        + (got.note ? ` \u2014 ${got.note}` : ""));
-            }
+            const win = tailWindow(st.cont.dur || 0, overlapFrames());
+            st.cont.start = win.start; st.cont.end = win.end;
+            run.note = "doubling the tail as a seam reference\u2026"; paintRun();
+            /* Same file as the guide, not a second copy of it: adopting twice
+               left input/ with clip_2.mkv in one slot and clip_3.mkv in the
+               other - identical, but named apart, and one more copy on disk
+               every run. */
+            await raceCancel(carrySeamRef({ mirror: st.cont }, win));
             render(); commit(); stash();
+          } else if (linked) {
+            /* Passed the pre-flight, so the slot is already filled - a project
+               from before renders were recorded. Use what is there. */
+            if (!(st.cont && st.cont.file)) {
+              throw new Error(`${shotLabel(sh, i)} is linked but ${shotLabel(pred, i - 1)} `
+                            + "has no render to continue from");
+            }
+            console.log(`[H3 Studio] Render: ${shotLabel(sh, i)} is linked but no render of `
+                      + `${shotLabel(pred, i - 1)} is recorded \u2014 keeping the CONTINUE FROM `
+                      + `already set (${st.cont.file})`);
           }
+
+          /* The look is for CUTS. A linked clip already has the guide at the
+             seam and the seam reference holding the subject past it; a look
+             reference from the same clip on top of those competes rather than
+             helps. Unlinked clips are where it is the only thread there is. */
+          if (!state.upscale && !linked && look && pred) {
+            if (!from) {
+              console.log(`[H3 Studio] Render: no render of ${shotLabel(pred, i - 1)} recorded, `
+                        + `no look to carry into ${shotLabel(sh, i)}`);
+            } else {
+              run.note = "carrying the look from " + shotLabel(pred, i - 1) + "\u2026"; paintRun();
+              const slot = st.slots.videos[0];
+              await raceCancel(adoptInto(slot, from, {
+                silent: true, reference: true,
+                missingMessage: `${shotLabel(sh, i)} is carrying the look from ${shotLabel(pred, i - 1)}, but its recorded render is missing. Re-render/include the predecessor, restore its file, or turn off + look.`,
+              }));
+              slot.carry = true;
+              run.note = "choosing the clearest window\u2026"; paintRun();
+              const got = await raceCancel(applySmartSpan(slot));
+              if (got) {
+                console.log(`[H3 Studio] Render: carry window `
+                          + `${got.start.toFixed(2)}s..${got.end.toFixed(2)}s `
+                          + `(${got.frames}f, score ${got.score})`
+                          + (got.note ? ` \u2014 ${got.note}` : ""));
+              }
+              render(); commit(); stash();
+            }
+          }
+
+          if (!ownsRun(state.id)) { handedOver = true; break; }
+          run.note = "queued, waiting for the render\u2026"; paintRun();
+          id = await raceCancel(queueOnce());
+          state.promptId = id; saveRun(state);
         }
 
-        run.note = "queued, waiting for the render\u2026"; paintRun();
-        const id = await raceCancel(queueOnce());
         const entry = await raceCancel(waitForPrompt(id));
+        /* Rebuilt while we waited: the new panel records this render. */
+        if (!ownsRun(state.id)) { handedOver = true; break; }
         const out = videoFromHistory(entry);
         if (!out) {
           throw new Error("that render produced no video file \u2014 is Glide Video "
@@ -5674,10 +6852,13 @@ function buildUI(node) {
         }
         /* Recorded on the clip, so the next link can find it from any scope,
            in this run or a later one. */
-        sh.lastOut = { name: out.name, subfolder: out.subfolder || "",
-                       type: out.type || "output" };
+        sh[state.upscale ? "lastUp" : "lastOut"] = { name: out.name,
+                       subfolder: out.subfolder || "", type: out.type || "output" };
         run.made.push(out.name);
+        state.made = run.made.slice();
+        state.k = k + 1; state.promptId = null;
         commit();
+        saveRun(state);
         console.log(`[H3 Studio] Render: ${shotLabel(sh, i)} `
                   + `(${k + 1}/${queue.length}) \u2192 ${out.name}`);
 
@@ -5696,16 +6877,25 @@ function buildUI(node) {
               + `${run.made.length} clip${run.made.length === 1 ? "" : "s"} finished and kept.`);
       }
     } finally {
-      const made = run ? run.made.slice() : [];
-      if (run) run.waiters = [];
-      run = null;
-      paintRun();
-      /* Back to the clip the run started from, so the panel is where it was */
-      if (p.shots[startIdx]) switchTo(startIdx);
-      renderShots();
-      if (!stopped && made.length) {
-        console.log(`[H3 Studio] Render: done, ${made.length} clip(s), `
-                  + `last file ${made[made.length - 1]}`);
+      if (handedOver) {
+        /* Someone else drives it now; leave the saved run alone. */
+        console.log("[H3 Studio] Render: handed over to the rebuilt panel");
+        if (run) run.waiters = [];
+        run = null;
+        paintRun();
+      } else {
+        clearRun();
+        const made = run ? run.made.slice() : [];
+        if (run) run.waiters = [];
+        run = null;
+        paintRun();
+        /* Back to the clip the run started from, so the panel is where it was */
+        if (p.shots[state.startIdx]) switchTo(state.startIdx);
+        renderShots();
+        if (!stopped && made.length) {
+          console.log(`[H3 Studio] Render: done, ${made.length} clip(s), `
+                    + `last file ${made[made.length - 1]}`);
+        }
       }
     }
   }
@@ -5816,11 +7006,26 @@ function buildUI(node) {
     } finally { busy(null); }
   }
 
+  /* Whitelisted like a clip state: only these keys come in from a file. */
+  function cleanSong(o) {
+    if (!o || typeof o !== "object" || !o.file) return null;
+    const n = (v, d) => (Number.isFinite(+v) ? +v : d);
+    return {
+      file: String(o.file),
+      dur: Math.max(0, n(o.dur, 0)),
+      start: Math.max(0, n(o.start, 0)),
+      strength: Math.min(1, Math.max(0, n(o.strength, 1))),
+      on: o.on !== false,
+      len: alignFrames(n(o.len, 243)),
+    };
+  }
+
   function projectBlob() {
     const p = proj();
     return new Blob([JSON.stringify({
       meta: { app: "H3 Studio project", version: 1, links: 1, saved: new Date().toISOString() },
       name: p.name || "", idx: p.idx, shots: p.shots,
+      song: p.song || null,
     }, null, 1)], { type: "application/json" });
   }
 
@@ -5935,16 +7140,18 @@ function buildUI(node) {
     busy("packing project\u2026");
     try {
       const shots = clone(p.shots);
-      shots.forEach((s) => { delete s.lastOut; });  // a path on this machine only
+      shots.forEach((s) => { delete s.lastOut; delete s.lastUp; });  // paths on this machine only
       const entries = [];
       const add = makeAssetAdder(entries, new Map(), new Set());
       for (const s of shots) await packSlots(s.state.slots, add);
+      const song = p.song && p.song.file ? clone(p.song) : null;
+      if (song) await add(song, true);           // the song is packed as-is
 
       const enc = new TextEncoder();
       entries.unshift({ name: "project.json", data: enc.encode(JSON.stringify({
         meta: { app: "H3 Studio project", version: 1, packed: true, links: 1,
                 shots: shots.length, saved: new Date().toISOString() },
-        name: p.name || "", idx: p.idx, shots,
+        name: p.name || "", idx: p.idx, shots, song,
       }, null, 1)) });
 
       const stem = (p.name || "h3-project").replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-") || "h3-project";
@@ -6056,14 +7263,17 @@ function buildUI(node) {
               subfolder: typeof s.lastOut.subfolder === "string" ? s.lastOut.subfolder : "",
               type: typeof s.lastOut.type === "string" ? s.lastOut.type : "output" }
           : null,
+        lastUp: pickOf(s && s.lastUp),
         state: parseInitial(JSON.stringify((s && s.state) || {})),
       }));
       /* A file written before links has no link fields at all, so infer them
          the same way an old workflow is migrated. A file that says it knows
          about links is taken at its word, even with none set. */
+      p.song = cleanSong(d.song);
+      if (!p.song) delete p.song;
       if (!(d.meta && d.meta.links)) inferLinks(p.shots);
       if (p.shots[0]) p.shots[0].link = false;
-      p.shots.forEach((s) => { if (!s.lastOut) delete s.lastOut; });
+      p.shots.forEach((s) => { if (!s.lastOut) delete s.lastOut; if (!s.lastUp) delete s.lastUp; });
       node.properties.gcast_links = 1;
       if (remap) {
         const fix = (it) => { if (it && it.file && remap.has(it.file)) it.file = remap.get(it.file); };
@@ -6074,6 +7284,7 @@ function buildUI(node) {
           (sl.videos || []).forEach(fix);
           (sl.audios || []).forEach(fix);
         });
+        fix(p.song);
       }
       p.idx = p.shots.length ? Math.min(Math.max(0, +d.idx || 0), p.shots.length - 1) : -1;
       /* a pack is an import, not a working file - don't let Save write over it */
@@ -6095,13 +7306,22 @@ function buildUI(node) {
    * settings() so a workflow saved before a key existed still gets its
    * default instead of undefined.
    */
-  const SETTING_DEFAULTS = { seamRef: true };
+  /* seamRef defaults OFF (seamRefV 4). Measured 2026-10-13 on a linked clip
+     that changes location: H3 took the reference tail - which carries no
+     timing - and played it back over the LAST ~22 frames of the clip, so
+     the next link continued from the old place. The guide alone holds the
+     join. Every workflow saved before v4 is switched off once; turning it
+     back on after that sticks. */
+  const SETTING_DEFAULTS = { seamRef: false, seamRefV: 4, clipList: false, overlap: 22 };
   function settings() {
     node.properties = node.properties || {};
     const cur = node.properties.gcast_settings;
-    node.properties.gcast_settings = Object.assign({}, SETTING_DEFAULTS,
-                                                   (cur && typeof cur === "object") ? cur : {});
-    return node.properties.gcast_settings;
+    const had = (cur && typeof cur === "object") ? cur : {};
+    const merged = Object.assign({}, SETTING_DEFAULTS, had);
+    if (!(had.seamRefV >= 4)) { merged.seamRef = false; }
+    merged.seamRefV = 4;
+    node.properties.gcast_settings = merged;
+    return merged;
   }
 
   const setPanel = el("div", "gcast-shots gcast-set");
@@ -6114,24 +7334,99 @@ function buildUI(node) {
     setPanel.textContent = "";
     const head = el("div", "gcast-shots-head");
     head.append(el("div", "gcast-shots-title", "Settings"));
+    head.append(el("div", "gcast-shots-file", `build ${H3_BUILD}`));
     setPanel.append(head);
 
-    const row = el("label", "gcast-set-row");
+    /* One line per setting, explanations in the tooltips. */
+    const row = el("label", "gcast-set-row line");
     const cb = el("input"); cb.type = "checkbox"; cb.checked = !!cfg.seamRef;
-    const txt = el("div", "txt");
-    txt.append(el("div", "t", "Reference video tail on continuation"));
-    txt.append(el("div", "d",
-      "Puts the same tail the guide uses into video " + (SEAM_REF_SLOT + 1)
-      + " as well, on Render all, last render, and dropping a clip on "
-      + "CONTINUE FROM. Usually holds the look and the armour better past the "
-      + "join; on some shots it darkens more instead, and it can nudge the "
-      + "camera direction."));
-    row.append(cb, txt);
+    row.append(cb, el("div", "t", "Reference video tail on continuation"));
+    row.title = "Puts the same tail the guide uses into video " + (SEAM_REF_SLOT + 1)
+      + " as well. Off by default: H3 can play that tail back at the END of the "
+      + "clip, and the next link then continues from the old shot. Can hold the "
+      + "look better on a clip that stays in the same place.";
     cb.onchange = () => {
       settings().seamRef = cb.checked;
       commit();
     };
     setPanel.append(row);
+
+    /* Continuation overlap. 22 is the tested default; 39 hands the next clip
+       more of the previous one's motion, at the cost of re-rendering more of
+       it. Only grid sizes exist, so it is a choice of two, not a number. */
+    const orow = el("div", "gcast-set-row line");
+    orow.append(el("div", "t", "Continuation overlap"));
+    orow.title = "How much of the previous clip a linked clip continues from. "
+      + "22 frames (0.9s) is the tested default; 39 (1.6s) carries more motion "
+      + "through the join but re-renders more of it. Applies to the next "
+      + "adoption - a CONTINUE FROM already filled keeps its window.";
+    const oseg = el("div", "gcast-seg small");
+    [22, 39].forEach((v) => {
+      const b = el("button", null, `${v}f`);
+      b.setAttribute("aria-pressed", String(overlapFrames() === v));
+      b.onclick = (e) => {
+        e.stopPropagation();
+        settings().overlap = v;
+        commit(); render(); paintSettings();
+      };
+      oseg.append(b);
+    });
+    orow.append(oseg);
+    setPanel.append(orow);
+
+    /* Project latents. Every render with a latent wired leaves a ~30 MB
+       .h3latent beside it, and they are only needed to continue FROM that
+       clip - so once a chain is finished they are dead weight. Scans first
+       and says how much, then deletes on a confirm. The server decides which
+       files those are (see project_latents); the browser only names the
+       project's renders. */
+    const lrow = el("div", "gcast-set-row line");
+    lrow.append(el("div", "t", "Project latents"));
+    lrow.title = "Each render saves a small .h3latent (~5 MB) next to its video for "
+      + "latent hold. Delete them once the chain is finished - continuing from a "
+      + "clip afterwards falls back to the normal guide.";
+    const bDel = el("button", "gcast-btn ghost small", "Delete\u2026");
+    lrow.append(bDel);
+    /* results show on the button for a few seconds - no extra line */
+    const ldesc = { set textContent(t) {
+      bDel.textContent = t; bDel.title = t;
+      setTimeout(() => { if (bDel.isConnected) bDel.textContent = "Delete\u2026"; }, 4000);
+    } };
+    const picks = () => {
+      const p = proj();
+      return (p && Array.isArray(p.shots) ? p.shots : [])
+        .map((s) => s && s.lastOut).filter((o) => o && o.name);
+    };
+    const ask = async (del) => {
+      const r = await api.fetchApi("/cglide/latents", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ picks: picks(), delete: !!del }),
+      });
+      if (r.status !== 200) throw new Error(`latents ${r.status}`);
+      return r.json();
+    };
+    bDel.onclick = async (e) => {
+      e.stopPropagation();
+      if (!picks().length) { ldesc.textContent = "No renders yet"; return; }
+      bDel.disabled = true;
+      try {
+        const scan = await ask(false);
+        if (!scan.count) { ldesc.textContent = "None found"; return; }
+        const mb = (scan.bytes / 1048576).toFixed(0);
+        if (!confirm(`Delete ${scan.count} latent file${scan.count === 1 ? "" : "s"} `
+                   + `(${mb} MB) from this project's render folders?\n\n`
+                   + "Videos are not touched. Continuing from these clips later "
+                   + "will use the normal guide instead of latent hold.")) return;
+        const done = await ask(true);
+        ldesc.textContent = `Deleted ${done.deleted} (${mb} MB)` + (done.failed ? ` \u00b7 ${done.failed} failed` : "");
+      } catch (err) {
+        console.error("[H3 Studio] latent cleanup failed:", err);
+        ldesc.textContent = "Error - see console";
+      } finally {
+        bDel.disabled = false;
+      }
+    };
+    setPanel.append(lrow);
   }
 
   function placeSet() {
@@ -6213,7 +7508,272 @@ function buildUI(node) {
     document.removeEventListener("pointerup", outsideShots, true);
   }
 
+  /* ---- song rows of the project panel -------------------------------- */
+
+  async function pickSong(fileObj) {
+    const f = fileObj || await pickFile(ACCEPT_AUDIO);
+    if (!f) return;
+    busy("uploading song…");
+    try {
+      const name = await uploadFile(f);
+      const dur = await probeDuration(viewURL(name), false);
+      const p = proj();
+      const old = p.song || {};
+      /* a new file keeps the settings that are about the PROJECT (how hard to
+         hold it, the clip length to lay out with) but starts at its top */
+      p.song = {
+        file: name, dur: dur || 0, start: 0, on: true,
+        strength: Number.isFinite(+old.strength) ? +old.strength : 1,
+        len: +old.len || 243,
+      };
+      if (!dur) {
+        console.warn("[H3 Studio] song: the browser could not read the length of", name,
+                     "— locking still works, laying out clips needs it");
+      }
+      commit(); render(); renderShots();
+    } catch (e) {
+      alert("H3 Studio: could not add the song — " + e);
+    } finally { busy(null); }
+  }
+
+  function clearSong() {
+    const p = proj();
+    if (!p.song) return;
+    if (!confirm("Remove the song from this project?\n\nClips keep their lengths "
+                 + "and links; they just stop locking a track.")) return;
+    delete p.song;
+    commit(); render(); renderShots();
+  }
+
+  const SONG_LENS = [[243, "10s"], [294, "12s"], [362, "15s"]];
+
+  /* Clip lengths that cover the song from its start to its end. Every clip
+     after the first gives SONG_OVERLAP frames back to the seam, and the last
+     one is cut down to the shortest grid length that still reaches the end. */
+  function songPlan(sg, F) {
+    const total = (+sg.dur || 0) - (+sg.start || 0);
+    if (!(total > 0)) return [];
+    if (total <= F / FPS) return [Math.max(39, alignFrames(Math.ceil(total * FPS)))];
+    const lens = [F];
+    let covered = F / FPS;
+    while (covered < total - 1 / FPS) {
+      const rem = total - covered;
+      let f = F;
+      const ov = overlapFrames();
+      if ((F - ov) / FPS > rem) {
+        f = Math.max(39, alignFrames(Math.ceil(rem * FPS) + ov));
+      }
+      lens.push(f);
+      covered += (f - ov) / FPS;
+    }
+    return lens;
+  }
+
+  /* Build the chain: as many linked clips as the song needs. Clips already in
+     the project are reused in order with their prompts untouched - only their
+     length and link change. New ones start from this clip's
+     subject_definitions, like Add clip. Clips left over past the end are
+     skipped, not deleted. */
+  function layOutSong() {
+    const p = proj();
+    const sg = p.song;
+    if (!sg || !sg.file) return;
+    if (!(sg.dur > 0)) {
+      alert("H3 Studio: the browser could not read this song's length, so there "
+            + "is nothing to lay out against. Try re-adding it as WAV or MP3.");
+      return;
+    }
+    const F = alignFrames(+sg.len || 243);
+    const lens = songPlan(sg, F);
+    if (!lens.length) {
+      alert("H3 Studio: the song's start is past its end.");
+      return;
+    }
+    const have = p.shots.length || 1;
+    const fresh = Math.max(0, lens.length - have);
+    const spare = Math.max(0, have - lens.length);
+    const ok = confirm(
+      `Lay out ${lens.length} linked clip${lens.length > 1 ? "s" : ""} covering `
+      + `${songClock(+sg.start || 0)} → ${songClock(sg.dur)}?\n\n`
+      + `${Math.min(have, lens.length)} existing clip${Math.min(have, lens.length) > 1 ? "s" : ""} `
+      + `keep their prompts and get a new length`
+      + (fresh ? `, ${fresh} new clip${fresh > 1 ? "s" : ""} start from this clip's subject_definitions` : "")
+      + (spare ? `, ${spare} left over past the end ${spare > 1 ? "are" : "is"} skipped` : "")
+      + `.\n\nEvery clip is linked to the one before it. Revert undoes this.`);
+    if (!ok) return;
+
+    snapProject("before laying out the song");
+    stash();
+    const tmpl = inheritedState();
+    /* New clips take the references, not the timeline audio: pieces placed
+       for THIS clip sit at times that mean nothing in the next one, and on
+       top of the song they would replace it at the same spot in every clip. */
+    if (audioPlaced(tmpl)) tmpl.slots.audios = tmpl.slots.audios.map(() => ({}));
+    seedFromScreen(p);
+    for (let i = 0; i < lens.length; i++) {
+      if (!p.shots[i]) p.shots.push({ id: uid(), name: "", state: clone(tmpl) });
+      const s = p.shots[i];
+      s.state.length = lens[i];
+      s.link = i > 0;
+      s.off = false;
+    }
+    for (let i = lens.length; i < p.shots.length; i++) p.shots[i].off = true;
+    node.properties.gcast_links = 1;
+    if (p.idx < 0 || !p.shots[p.idx]) p.idx = 0;
+    load(JSON.stringify(p.shots[p.idx].state));
+    commit(); paintShotsBtn(); paintPresetName(); render(); renderShots();
+    console.log(`[H3 Studio] song: laid out ${lens.length} clips `
+              + `(${lens.join(", ")} frames) from ${songClock(+sg.start || 0)}`);
+  }
+
+  function renderSongRows(p) {
+    const sg = p.song && p.song.file ? p.song : null;
+    const stop = (e) => e.stopPropagation();
+
+    const row = el("div", "gcast-shots-foot song");
+    row.append(el("div", "lbl", "Song"));
+    const bFile = el("button", "gcast-btn ghost songfile",
+      sg ? "♪ " + String(sg.file).split("/").pop() : "Add song…");
+    bFile.title = sg
+      ? `${sg.file}${sg.dur ? " · " + songClock(sg.dur) : ""}. Click to swap it for another `
+        + "file, or drop one here."
+      : "One track for the whole project. Each clip locks its own window of it into "
+        + "the latent, so H3 animates against the real song instead of making one up. "
+        + "Click or drop an audio file.";
+    bFile.disabled = !!run;
+    bFile.onclick = (e) => { e.stopPropagation(); pickSong(); };
+    bFile.ondragover = (e) => { e.preventDefault(); e.stopPropagation(); };
+    bFile.ondrop = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) pickSong(f);
+    };
+    row.append(bFile, el("div", "spacer"));
+
+    if (sg) {
+      const labOn = el("label", "gcast-chk");
+      const cbOn = el("input"); cbOn.type = "checkbox";
+      cbOn.checked = sg.on !== false;
+      cbOn.disabled = !!run;
+      cbOn.onchange = () => { sg.on = cbOn.checked; commit(); render(); };
+      labOn.append(cbOn, el("span", null, "lock"));
+      labOn.title = "Off keeps the song in the project but renders without it.";
+      labOn.onpointerdown = stop;
+
+      const num = (val, min, max, step, title, onSet) => {
+        const n = el("input", "gcast-songnum");
+        n.type = "number"; n.min = min; n.max = max; n.step = step;
+        n.value = val; n.title = title;
+        n.disabled = !!run;
+        n.onkeydown = (e) => { e.stopPropagation(); if (e.key === "Enter") n.blur(); };
+        n.onpointerdown = stop;
+        n.onchange = () => {
+          const v = Math.min(+max, Math.max(+min, +n.value || 0));
+          n.value = v;
+          onSet(v); commit(); render(); renderShots();
+        };
+        return n;
+      };
+      const inFrom = num(+(sg.start || 0).toFixed(2), 0, Math.max(0, +sg.dur || 3600), 0.01,
+        "Seconds into the song where the FIRST clip starts. Every later clip follows "
+        + "from its length and links.",
+        (v) => { sg.start = v; });
+      const inHold = num(Number.isFinite(+sg.strength) ? +sg.strength : 1, 0, 1, 0.05,
+        "How hard the song is held. 1 keeps it exactly. A little lower lets H3 "
+        + "rework the sound slightly so picture and sound sit together better.",
+        (v) => { sg.strength = v; });
+
+      /* spelled out, not just a cross: it is the only way to drop the song */
+      const bX = el("button", "gcast-btn ghost songrm", "× Remove song");
+      bX.title = "Remove the song from the project";
+      bX.disabled = !!run;
+      bX.onclick = (e) => { e.stopPropagation(); clearSong(); };
+
+      row.append(labOn, el("div", "lbl", "from"), inFrom,
+                 el("div", "lbl", "hold"), inHold, bX);
+    }
+    shotsPanel.append(row);
+    if (!sg) return;
+
+    /* Timeline audio sits OVER the song. Placed on purpose in one clip that is
+       a feature; copied into every clip (an Add clip, or a layout made before
+       this check existed) it is the same piece replacing the song at the same
+       spot in each clip, which sounds like the song restarting at every seam.
+       Say so, and offer to clear it in one go. */
+    const stateOf = (k) => (k === p.idx ? st : (p.shots[k].state || {}));
+    const over = [];
+    p.shots.forEach((sh, k) => {
+      const s2 = stateOf(k);
+      if (!audioPlaced(s2)) return;
+      if ((s2.slots && s2.slots.audios || []).some((a) => a && a.file)) over.push(k);
+    });
+    if (over.length && sg.on !== false) {
+      const w = el("div", "gcast-shots-foot song lay warnrow");
+      w.append(el("div", "lbl",
+        `${over.length} clip${over.length > 1 ? "s have" : " has"} timeline audio replacing the song`));
+      w.append(el("div", "spacer"));
+      const bClr = el("button", "gcast-btn", "Clear it");
+      bClr.title = "Empty the audio slots of those clips so the song plays straight "
+        + "through. References, prompts and lengths are untouched. Revert undoes it.";
+      bClr.disabled = !!run;
+      bClr.onclick = (e) => {
+        e.stopPropagation();
+        snapProject("before clearing timeline audio");
+        stash();
+        over.forEach((k) => {
+          const s2 = p.shots[k].state;
+          if (s2 && s2.slots) s2.slots.audios = s2.slots.audios.map(() => ({}));
+        });
+        if (p.shots[p.idx]) load(JSON.stringify(p.shots[p.idx].state));
+        commit(); render(); renderShots();
+      };
+      w.append(bClr);
+      shotsPanel.append(w);
+    }
+
+    const lay = el("div", "gcast-shots-foot song lay");
+    const F = alignFrames(+sg.len || 243);
+    const plan = sg.dur > 0 ? songPlan(sg, F) : [];
+    lay.append(el("div", "lbl",
+      sg.dur > 0
+        ? `${songClock(Math.max(0, sg.dur - (+sg.start || 0)))} of song → `
+          + `${plan.length} clip${plan.length === 1 ? "" : "s"}`
+        : "length unknown"));
+    lay.append(el("div", "spacer"));
+    const selLen = el("select", "gcast-runmode");
+    SONG_LENS.forEach(([v, t]) => {
+      const o = el("option", null, `${t} (${v}f)`); o.value = String(v); selLen.append(o);
+    });
+    selLen.value = SONG_LENS.some(([v]) => v === F) ? String(F) : "243";
+    selLen.title = "Clip length for the layout. Each link gives 22 frames back to the seam.";
+    selLen.onpointerdown = stop;
+    selLen.disabled = !!run;
+    selLen.onchange = () => { sg.len = +selLen.value; commit(); renderShots(); };
+    const bLay = el("button", "gcast-btn", "Lay out clips");
+    bLay.title = "Make the project one linked chain that covers the song, then Render "
+               + "the whole project.";
+    bLay.disabled = !!run || !(sg.dur > 0);
+    bLay.onclick = (e) => { e.stopPropagation(); layOutSong(); };
+    lay.append(selLen, bLay);
+    shotsPanel.append(lay);
+  }
+
+  /* The lane's song bar and the window under LENGTH both read the project
+     (which song, where this clip sits in it). Project actions - New, Open,
+     delete, move, link - only ever redrew the panel, so those two kept
+     showing a song the project no longer had. Repaint them whenever what
+     they would show has changed, panel open or not. */
+  function syncSongBits() {
+    let now;
+    try { now = JSON.stringify([songMeta(), alignFrames(st.length)]); }
+    catch (e) { return; }
+    if (now === songStamp) return;
+    songStamp = now;
+    render();
+  }
+
   function renderShots() {
+    syncSongBits();
     if (!shotsOpen) return;
     const p = proj();
     for (const shot of shotsSelected) if (!p.shots.includes(shot)) shotsSelected.delete(shot);
@@ -6343,9 +7903,13 @@ function buildUI(node) {
       if (i === shotsFocus) row.dataset.focus = "1";
       list.append(row);
     });
-    shotsPanel.append(list);
+    /* The timeline above the node already shows every clip, so the list here
+       can fold away. Remembered per node; always open when there are no clips,
+       since then it carries the "how to start" note. */
+    const listOpen = !!settings().clipList || !p.shots.length;
+    if (listOpen) shotsPanel.append(list);
     list.scrollTop = prevTop;
-    if (shotsFocus >= 0) {
+    if (listOpen && shotsFocus >= 0) {
       const target = list.querySelector('[data-focus="1"]');
       if (target) target.scrollIntoView({ block: "nearest" });
       shotsFocus = -1;
@@ -6398,6 +7962,23 @@ function buildUI(node) {
     bPPack.onclick = (e) => { e.stopPropagation(); packProject(); };
     bPOpen.onclick = (e) => { e.stopPropagation(); openProject(); };
     foot.append(bAdd, bBlank, bImport);
+    if (p.shots.length) {
+      /* List on/off. The timeline above the node shows every clip anyway, so
+         the list can fold away to keep the menu short. */
+      const sw = el("button", "gcast-sw spacer");
+      sw.setAttribute("aria-pressed", String(listOpen));
+      sw.title = listOpen ? "Hide the clip list \u2014 the timeline still shows them all"
+                          : `Show the list of all ${p.shots.length} clips here`;
+      const track = el("span", "track");
+      track.append(el("span", "knob"));
+      sw.append(el("span", "t", "list"), track);
+      sw.onclick = (e) => {
+        e.stopPropagation();
+        settings().clipList = !listOpen;
+        commit(); renderShots();
+      };
+      foot.append(sw);
+    }
     shotsPanel.append(foot);
 
     /* Shot actions and project actions on separate rows: seven buttons on one
@@ -6407,6 +7988,7 @@ function buildUI(node) {
     pfoot.append(el("div", "lbl", "Project"), el("div", "spacer"),
                  bPRevert, bPNew, bPSave, bPSaveAs, bPPack, bPOpen);
     shotsPanel.append(pfoot);
+    renderSongRows(p);
 
     /* Render sits on its own row: it is the only control here that starts
        work rather than editing the list, and it should not be a neighbour of
@@ -6455,8 +8037,20 @@ function buildUI(node) {
       + "kept and rebuilt during the run. Manual references, skipped clips, and an "
       + "outside predecessor needed to begin a mid-chain run are not changed.";
 
-    const bRun = el("button", "gcast-btn run", "Render");
-    const runStat = el("span", "gcast-runstat", "0 clips · 0.00s");
+    const bRun = el("button", "gcast-btn run");
+    /* A small rocket, drawn upright and turned 45deg so it climbs to the right.
+       The porthole is a hole (evenodd), not a painted dot, so it reads on any
+       background the button sits on. */
+    bRun.innerHTML =
+        '<svg class="ico" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">'
+      + '<g fill="currentColor" transform="rotate(45 12 12)">'
+      + '<path fill-rule="evenodd" d="M12 1.6C15.6 4.2 16.3 7.9 16.3 11.2V16.2H7.7V11.2C7.7 7.9 8.4 4.2 12 1.6Z'
+      +   'M12 6.9a2.15 2.15 0 1 0 0 4.3 2.15 2.15 0 0 0 0-4.3Z"/>'
+      + '<path d="M7.7 11.9 4.6 15.6V18.4L7.7 16.6Z"/>'
+      + '<path d="M16.3 11.9 19.4 15.6V18.4L16.3 16.6Z"/>'
+      + '<path d="M9.9 17.5H14.1C14.1 19.6 13.1 21.2 12 22.4 10.9 21.2 9.9 19.6 9.9 17.5Z" opacity=".75"/>'
+      + '</g></svg><span class="lbl">Render</span>';
+    const runStat = el("span", "gcast-runstat", "0 clips \u00b7 0.00s");
     const paintRunTitle = () => {
       if (!p.shots.length) {
         runStat.textContent = "0 clips · 0.00s";
@@ -6495,8 +8089,30 @@ function buildUI(node) {
     bRun.disabled = !p.shots.length || !!run;
     bRun.onclick = (e) => { e.stopPropagation(); closeShots();
                             renderAll(selScope.value, cbLook.checked, cbClear.checked); };
+    /* Orange with a warning sign on purpose: this is not "also upscale my
+       render" - it replaces generation with the saved latents, and belongs in
+       a separate upscale workflow. Ticked by mistake in the draft workflow it
+       would load old takes instead of generating new ones. */
+    const labUp = el("label", "gcast-chk upwarn");
+    const cbUp = el("input"); cbUp.type = "checkbox";
+    cbUp.checked = upscaleOn();
+    cbUp.disabled = !!run;
+    const icoUp = el("span", "ico");
+    icoUp.innerHTML = '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">'
+      + '<path fill="currentColor" fill-rule="evenodd" d="M8 1.2 15.2 14H.8L8 1.2Z'
+      + 'M7.2 6v4.2h1.6V6H7.2Zm0 5.4v1.6h1.6v-1.6H7.2Z"/></svg>';
+    const paintUp = () => labUp.classList.toggle("on", cbUp.checked);
+    cbUp.onchange = () => { node.properties.gcast_upscale = cbUp.checked; paintUp();
+                            commit(); paintRunTitle(); };
+    labUp.append(cbUp, icoUp, el("span", null, "upscale pass"));
+    paintUp();
+    labUp.onpointerdown = (e) => e.stopPropagation();
+    labUp.title = "Upscale pass, for an upscale workflow (H3 Studio's latent \u2192 "
+      + "upscaler \u2192 refine, no first sampler). Each clip is built from the full "
+      + "latent saved with its draft (save_latent = full), and linked clips are "
+      + "joined onto the clip before's UPSCALED render. Drafts are left untouched.";
     rfoot.append(el("div", "lbl", "Scope"), el("div", "spacer"), selScope,
-                  labLook, labClear, runStat, bRun);
+                 labLook, labClear, labUp, runStat, bRun);
     shotsPanel.append(rfoot);
   }
 
@@ -6602,17 +8218,44 @@ function buildUI(node) {
    * prompt takes it out of the flow, which would otherwise shrink the panel
    * and open a gap above it in the v2 frontend. */
   let contentH = CONTENT_MIN;
+  /* Live: the panel's top inside the node + the 20px margin below it. */
+  const chromeH = () => {
+    const w = (node.widgets || []).find((x) => x && x.name === "h3_ui");
+    return (w && w.y > 0) ? Math.round(w.y) + 20 : NODE_CHROME;
+  };
+  /* Measured at the panel's NATURAL height - height:auto, so the prompt sits
+     at its own minimum instead of filling the node. It used to read the
+     current height and only ever raise the floor, so once the node had been
+     tall it could never be dragged back down: in v1 the frame shrank while
+     the panel stayed tall, in v2 the node would not shrink at all. Now the
+     floor follows the content both ways, and the node's minimum with it. */
   function measureContent() {
     requestAnimationFrame(() => {
       if (node.properties?.gcast_prompt_big && st.mode !== "fl2va") return;
-      const prev = root.style.minHeight;
+      const prevMin = root.style.minHeight, prevH = root.style.height;
+      /* The prompt's gutter and highlight overlay copy the textarea's current
+         (stretched) height inline; left in place they hold the measurement at
+         the old size. Out of the way for the read, back straight after. */
+      const tall = [...root.querySelectorAll(".gcast-gutter, .gcast-hl")];
+      const saved = tall.map((e) => e.style.display);
+      tall.forEach((e) => { e.style.display = "none"; });
       root.style.minHeight = "";
-      const h = root.scrollHeight;
-      root.style.minHeight = prev;
-      if (h > contentH) {
+      root.style.height = "auto";
+      /* no fixed floor: the prompt is the part that gives way, so the
+         smallest node is the controls plus a short prompt */
+      const h = Math.ceil(root.scrollHeight);
+      root.style.height = prevH;
+      tall.forEach((e, k) => { e.style.display = saved[k]; });
+      if (h !== contentH) {
         contentH = h;
-        root.style.minHeight = contentH + "px";
       }
+      /* Informational only now - nothing clamps to it. A hard floor (CSS
+         min-height on the panel, or a clamp in onResize) was read differently
+         by different ComfyUI frontends and blocked the drag on some of them.
+         With no floor the prompt gives way first, down to its 90px, and past
+         that the panel scrolls instead of refusing to shrink. */
+      node.h3MinHeight = contentH + chromeH();
+      root.style.minHeight = "";
     });
   }
 
@@ -7367,11 +9010,11 @@ function buildUI(node) {
     if (!(kind in limits) || !Number.isInteger(index) || index < 0 || index >= limits[kind]) {
       throw new Error("invalid reference slot");
     }
-    if (st.mode !== "ref2va") throw new Error("image, video, and audio references require Reference to Video mode");
+    if (st.mode !== "ref2va" && kind !== "audio") throw new Error("image and video references require Reference to Video mode");
     return {
       slot: st.slots[`${kind}s`][index],
       mediaKind: kind,
-      token: `@${kind}${index + 1}`,
+      token: kind === "audio" && audioPlaced(st) ? null : `@${kind}${index + 1}`,
     };
   }
 
@@ -7421,9 +9064,27 @@ function buildUI(node) {
         || start < 0 || end > dur || end <= start) {
       throw new Error("enter a valid range within the source duration, with end after start");
     }
+    const placed = request.kind === "audio" && audioPlaced(st);
+    const at = request.at === undefined ? slot.at : Number(request.at);
+    const hold = request.hold === undefined ? slot.hold : Number(request.hold);
+    if (placed && ((at !== undefined && (!Number.isFinite(at) || at < 0))
+        || (hold !== undefined && (!Number.isFinite(hold) || hold < 0 || hold > 1)))) {
+      throw new Error("enter a nonnegative placement time and a hold between 0 and 1");
+    }
     slot.start = start;
     slot.end = end;
+    if (placed && at !== undefined) slot.at = at;
+    if (placed && hold !== undefined) slot.hold = hold;
     if (request.kind === "video" && typeof request.audio === "boolean") slot.audio = request.audio;
+    render(); commit(); stash();
+    return projectWorkspaceSnapshot();
+  }
+
+  function setWorkspaceAudioMode(request) {
+    if (!request || request.version !== 1 || !["ref", "timeline"].includes(request.mode)) throw new Error("invalid audio mode");
+    if (run) throw new Error("audio mode cannot change while the project is rendering");
+    if (st.mode === "fl2va" && request.mode !== "timeline") throw new Error("First/Last mode uses timeline audio");
+    st.audio_mode = request.mode;
     render(); commit(); stash();
     return projectWorkspaceSnapshot();
   }
@@ -7433,6 +9094,7 @@ function buildUI(node) {
     set: setWorkspaceReference,
     clear: clearWorkspaceReference,
     updateTimed: updateWorkspaceTimedReference,
+    setAudioMode: setWorkspaceAudioMode,
   });
 
   /* Project navigation for focused editors. The full clip states are cloned
@@ -7760,9 +9422,12 @@ function buildUI(node) {
 
   return {
     root,
+    tryResume,
     destroy() {
       for (const controller of Array.from(autocompleteControllers)) controller.destroy();
       root.removeEventListener("scroll", closePromptAutocompletes, true);
+      try { laneStop(false); } catch (e) { /* never block removal */ }
+      try { api.removeEventListener("execution_success", onPromptDone); } catch (e) { /* older api */ }
       /* a window listener per node instance would outlive the node */
       window.removeEventListener("paste", onPaste, true);
       window.removeEventListener("wheel", onPromptWheel, true);
@@ -7790,6 +9455,12 @@ function buildUI(node) {
 }
 
 /* ============================================================ register */
+
+/* Printed once on load: which build of this file the browser is running.
+   Browsers cache extension scripts hard, so "I updated it and nothing
+   changed" is answered by this line before anything else. */
+const H3_BUILD = "1.4.6 + TWL integration \u00b7 2026-10-20";
+console.log(`[H3 Studio] build ${H3_BUILD}`);
 
 app.registerExtension({
   name: "cglide.glidecast",
@@ -7839,6 +9510,10 @@ app.registerExtension({
 
       const ui = buildUI(this);
       this.h3ui = ui;
+      /* No getMinHeight: LiteGraph adds it on top of the socket rows, which
+         sit BESIDE the panel, not above it - tested in a real ComfyUI, that
+         made the minimum taller than the node and a drag upward grew it. The
+         floor is onResize's, from the measured content. */
       const uiWidget = this.addDOMWidget("h3_ui", "div", ui.root, { serialize: false, hideOnZoom: false });
 
       /* The widget's own wrapper is <div class="dom-widget">, sitting inside
@@ -7900,15 +9575,34 @@ app.registerExtension({
       const r = onConfigure?.apply(this, arguments);
       const data = this.widgets?.find((w) => w.name === "h3_data");
       if (this.h3ui && data) this.h3ui.load(data.value);
+      /* A Render all in progress when this workflow was last on screen - a
+         workflow tab switch or a page reload rebuilds the node - is picked
+         back up here. After a beat, so the graph is fully configured and the
+         node has its id. */
+      const ui = this.h3ui;
+      if (ui && ui.tryResume) setTimeout(() => ui.tryResume(), 1200);
       if (this.gcastTidy) setTimeout(this.gcastTidy, 60);
       return r;
     };
 
+    /* Nodes 2.0 (Vue nodes) sizes the panel from its content and handles
+       this itself. The classic canvas does not, so there the node stops where
+       the prompt reaches its smallest (90px) instead of shrinking into a
+       scrolling panel. */
+    const vueNodes = () => {
+      try {
+        const st = app.extensionManager && app.extensionManager.setting;
+        if (st && typeof st.get === "function") return !!st.get("Comfy.VueNodes.Enabled");
+        return !!(app.ui && app.ui.settings && app.ui.settings.getSettingValue
+                  && app.ui.settings.getSettingValue("Comfy.VueNodes.Enabled"));
+      } catch (e) { return false; }
+    };
     const onResize = nodeType.prototype.onResize;
     nodeType.prototype.onResize = function (size) {
-      const minH = this.h3MinHeight || MIN_H_REF;
       if (size[0] < 900) size[0] = 900;
-      if (size[1] < minH) size[1] = minH;
+      if (!vueNodes() && this.h3MinHeight > 0 && size[1] < this.h3MinHeight) {
+        size[1] = this.h3MinHeight;
+      }
       return onResize?.apply(this, arguments);
     };
   },

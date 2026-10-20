@@ -173,6 +173,130 @@ def _resolve_asset(ref):
     return None
 
 
+def _clean_origin(raw):
+    if not isinstance(raw, dict):
+        return None
+    name, sub = raw.get("name"), raw.get("subfolder") or ""
+    if not isinstance(name, str) or not name or not isinstance(sub, str):
+        return None
+    kind = "temp" if raw.get("type") == "temp" else "output"
+    return {"name": name[:260], "subfolder": sub[:260], "type": kind}
+
+
+def _inside_dir(root, target):
+    root = os.path.normcase(os.path.realpath(root))
+    target = os.path.normcase(os.path.realpath(target))
+    try:
+        return os.path.commonpath([root, target]) == root
+    except ValueError:
+        return False
+
+
+LATENT_SIDECAR = ".h3latent"
+FULL_SIDECAR = ".h3full"
+
+
+def _parse_upscale(raw):
+    if not isinstance(raw, dict):
+        return None
+    try:
+        ov = int(raw.get("overlap") or 0)
+    except Exception:
+        ov = 0
+    return {"src": _clean_origin(raw.get("src")),
+            "prev": _clean_origin(raw.get("prev")),
+            "overlap": ov if ov in (5, 22, 39) else (22 if ov > 0 else 0)}
+
+
+def _render_path(org, ext=None):
+    """A recorded render ({name, subfolder, type}) -> an absolute path inside
+    output/ or temp/, optionally with its extension swapped. None if it is
+    not there or would land outside those folders."""
+    if not org:
+        return None
+    try:
+        root = (folder_paths.get_temp_directory() if org["type"] == "temp"
+                else folder_paths.get_output_directory())
+    except Exception:
+        return None
+    name = org["name"] if ext is None else os.path.splitext(org["name"])[0] + ext
+    path = os.path.join(root, org["subfolder"], name)
+    if not _inside_dir(root, path) or not os.path.isfile(path):
+        return None
+    return os.path.realpath(path)
+
+
+def _find_latent_sidecar(cont):
+    """The .h3latent Glide Video wrote beside the clip CONTINUE FROM holds.
+
+    Looked up from the clip's ORIGIN (where the render was written, recorded
+    when it was adopted) and, failing that, beside the adopted copy in input/.
+    Every candidate is resolved with realpath and must stay inside output/,
+    temp/ or input/ - the origin comes from the browser, so it is never
+    trusted as a path.
+    """
+    cands = []
+    org = cont.get("origin")
+    if org:
+        try:
+            root = (folder_paths.get_temp_directory() if org["type"] == "temp"
+                    else folder_paths.get_output_directory())
+            path = os.path.join(root, org["subfolder"],
+                                os.path.splitext(org["name"])[0] + LATENT_SIDECAR)
+            cands.append((root, path))
+        except Exception:
+            pass
+    local = _resolve_asset(cont.get("file"))
+    if local:
+        cands.append((folder_paths.get_input_directory(),
+                      os.path.splitext(local)[0] + LATENT_SIDECAR))
+    for root, path in cands:
+        if _inside_dir(root, path) and os.path.isfile(path):
+            return os.path.realpath(path)
+    return None
+
+
+def project_latents(picks, limit=512):
+    """The .h3latent sidecars belonging to a project's renders.
+
+    picks are the project's recorded renders ({name, subfolder, type}). A
+    render in a subfolder of its own (the usual project/NN_name layout)
+    claims EVERY sidecar in that folder, so superseded takes go too; one in
+    the bare output root claims only its own sidecar, since that folder is
+    shared with everything else. Every path is realpath-checked to stay
+    inside output/ or temp/, and only *.h3latent files are ever returned.
+    Returns {path: bytes}.
+    """
+    found = {}
+    if not isinstance(picks, list):
+        return found
+    for raw in picks[:limit]:
+        org = _clean_origin(raw)
+        if not org:
+            continue
+        try:
+            root = (folder_paths.get_temp_directory() if org["type"] == "temp"
+                    else folder_paths.get_output_directory())
+        except Exception:
+            continue
+        folder = os.path.realpath(os.path.join(root, org["subfolder"]))
+        if not _inside_dir(root, folder) or not os.path.isdir(folder):
+            continue
+        if org["subfolder"].strip("/\\"):
+            names = [n for n in os.listdir(folder) if n.endswith(LATENT_SIDECAR)]
+        else:
+            names = [os.path.splitext(os.path.basename(org["name"]))[0] + LATENT_SIDECAR]
+        for n in names:
+            f = os.path.realpath(os.path.join(folder, n))
+            if (f.endswith(LATENT_SIDECAR) and _inside_dir(root, f)
+                    and os.path.isfile(f)):
+                try:
+                    found[f] = os.path.getsize(f)
+                except OSError:
+                    pass
+    return found
+
+
 def _load_image(ref):
     path = _resolve_asset(ref)
     if path is None:
@@ -564,6 +688,10 @@ def parse_h3_data(raw):
             "audio": bool(raw_cont.get("audio")),
             # the UI sends a checkbox; a float still works if a file carries one
             "flatten": max(0.0, min(1.0, float(raw_cont.get("flatten") or 0.0))),
+            # Where the adopted clip came from ({name, subfolder, type} in
+            # output/ or temp/). Only used to find its latent sidecar, and
+            # only through _resolve_render, which keeps it inside those folders.
+            "origin": _clean_origin(raw_cont.get("origin")),
         }
 
     # Who this clip IS. Whitelisted like the rest, so a project file that
@@ -583,7 +711,7 @@ def parse_h3_data(raw):
             "project": str(raw_clip.get("project") or "")[:120],
         }
 
-    return {
+    out = {
         "mode": "fl2va" if data.get("mode") == "fl2va" else "ref2va",
         "width": int(data.get("width") or 1344),
         "height": int(data.get("height") or 768),
@@ -599,7 +727,91 @@ def parse_h3_data(raw):
         "videos": _video_slot_list(slots.get("videos")),
         "audios": _slot_list(slots.get("audios"), MAX_AUDIOS),
         "cont": cont,
+        # LATENT HOLD: continue from the previous clip's sampled latent instead
+        # of a re-encoded guide. A node setting, sent at the top of h3_data
+        # because Render all clears and refills `cont` on every link.
+        "cont_latent": bool(data.get("cont_latent")),
+        # UPSCALE PASS: build this clip from its saved full latent (.h3full,
+        # next to its draft render) instead of an empty one, and hand Glide
+        # Join the previous clip's UPSCALED render. Sent by the panel only
+        # while the Render row's "upscale" box is on.
+        "upscale": _parse_upscale(data.get("upscale")),
         "clip": clip,
+        "song": _parse_song(data.get("song")),
+        "audio_mode": "timeline" if data.get("audio_mode") == "timeline" else "ref",
+    }
+    # TIMELINE AUDIO. The audio slots either feed the encoder as references
+    # (<Audio j>, the default) or are PLACED: written into the audio half of the
+    # target latent at a time in the clip and held there, with H3 generating its
+    # own sound in the gaps. fl2va has no audio references at all, so there the
+    # slots are always placed. A placed slot is moved out of "audios" so the
+    # reference path and the tag map never see it.
+    if out["mode"] == "fl2va" or out["audio_mode"] == "timeline":
+        out["placed"] = _placed_list(slots.get("audios"))
+        out["audios"] = [None] * MAX_AUDIOS
+    else:
+        out["placed"] = [None] * MAX_AUDIOS
+    return out
+
+
+def _placed_list(raw):
+    """Audio slots as timeline pieces: which part of the file, where it lands."""
+    out = []
+    src = raw if isinstance(raw, list) else []
+
+    def num(v, d):
+        try:
+            v = float(v)
+        except Exception:
+            return d
+        return v if math.isfinite(v) else d
+
+    for i in range(MAX_AUDIOS):
+        item = src[i] if i < len(src) and isinstance(src[i], dict) else {}
+        if not item.get("file"):
+            out.append(None)
+            continue
+        start = max(0.0, num(item.get("start"), 0.0))
+        end = item.get("end")
+        end = num(end, None) if end not in (None, "") else None
+        if end is not None and end <= start:
+            end = None
+        out.append({
+            "file": str(item["file"]),
+            "start": start,
+            "end": end,
+            "at": max(0.0, num(item.get("at"), 0.0)),
+            "hold": max(0.0, min(1.0, num(item.get("hold"), 1.0))),
+        })
+    return out
+
+
+def _parse_song(raw):
+    """SONG: the project's track, already windowed for THIS clip by the UI.
+
+    The panel knows the whole project - every clip's length and which ones are
+    linked - so it works out where this clip sits in the song and sends only
+    that: the file, the second this clip's frame 0 lands on, and how hard to
+    hold it. Nothing here needs the other clips.
+    """
+    if not isinstance(raw, dict) or not raw.get("file"):
+        return None
+    try:
+        start = float(raw.get("start") or 0.0)
+    except Exception:
+        start = 0.0
+    try:
+        strength = float(raw.get("strength"))
+    except Exception:
+        strength = 1.0
+    if not math.isfinite(start):
+        start = 0.0
+    if not math.isfinite(strength):
+        strength = 1.0
+    return {
+        "file": str(raw["file"]),
+        "start": max(0.0, start),
+        "strength": max(0.0, min(1.0, strength)),
     }
 
 
@@ -747,6 +959,20 @@ def build_tag_map(cfg, has_first, has_last):
     return tags, presentation
 
 
+def strip_placed_tokens(prompt, cfg):
+    """A timeline slot is not a reference: the encoder never sees it, so its
+    @audio token has nothing to point at. Dropped here with its own reason,
+    rather than reaching transcription and being reported as an empty slot."""
+    out = prompt
+    for n, slot in enumerate(cfg.get("placed") or [], start=1):
+        tok = "@audio%d" % n
+        if slot and re.search(re.escape(tok) + r"(?![0-9A-Za-z])", out):
+            print("[H3 Studio] %s is on the timeline, not a reference - dropped from "
+                  "the prompt (describe the sound in words instead)." % tok)
+            out = re.sub(re.escape(tok) + r"(?![0-9A-Za-z])", "", out)
+    return out
+
+
 def transcribe_prompt(prompt, tags, known_tokens):
     """Replace @tokens with real tags. Tokens pointing at empty slots are dropped."""
     out = prompt
@@ -798,6 +1024,33 @@ try:
     from aiohttp import web as _web
     from server import PromptServer as _PromptServer
 
+    @_PromptServer.instance.routes.post("/cglide/latents")
+    async def _latents(request):
+        """Scan (default) or delete a project's latent sidecars. The browser
+        sends the project's recorded renders; what is touched is decided here
+        by project_latents(), never by a path from the request."""
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        picks = body.get("picks") if isinstance(body, dict) else None
+        found = project_latents(picks)
+        deleted, failed = 0, 0
+        if isinstance(body, dict) and body.get("delete") is True:
+            for f in list(found):
+                try:
+                    os.remove(f)
+                    deleted += 1
+                except OSError as e:
+                    failed += 1
+                    print("[H3 Studio] could not delete %s (%s)" % (f, e))
+            print("[H3 Studio] deleted %d latent sidecar%s (%.1f MB)%s"
+                  % (deleted, "" if deleted == 1 else "s",
+                     sum(found.values()) / 1048576.0,
+                     (", %d failed" % failed) if failed else ""))
+        return _web.json_response({"count": len(found), "bytes": sum(found.values()),
+                                   "deleted": deleted, "failed": failed})
+
     @_PromptServer.instance.routes.get("/cglide/pick_span")
     async def _pick_span(request):
         ref = request.rel_url.query.get("file") or ""
@@ -846,14 +1099,22 @@ class CSGlideCast:
             },
         }
 
-    # clip_name is APPENDED, never inserted. LiteGraph stores links by output
-    # index, so a new socket next to source_video would silently rewire every
-    # saved workflow that already uses this node.
-    RETURN_TYPES = ("CONDITIONING", "LATENT", "INT", "INT", "INT", "FLOAT", "INT",
-                    "STRING", "IMAGE", "CONDITIONING", "STRING")
-    RETURN_NAMES = ("positive", "latent", "width", "height", "length", "seconds",
-                    "overlap_frames", "source_video", "guide_frames",
-                    "positive_refine", "clip_name")
+    # Reordered and trimmed in 1.4.5 (his call, saved workflows rewired once):
+    # guide_frames is gone; the two conditionings sit together. 1.4.6 brought
+    # width / height / length / seconds back (people DO drive their whole
+    # workflow from H3 Studio, issue from MADmotionAI) plus refine_multiplier,
+    # all APPENDED after positive_refine so 1.4.5 workflows keep their wires.
+    # LiteGraph stores links by output INDEX - from here on, append, never
+    # insert, or every saved workflow is silently rewired again.
+    #   overlap_frames / source_video / locked_audio -> Glide Join (and Glide
+    #   Upscale Hold); locked_audio is the held song/timeline sound as raw
+    #   samples with a splice weight, empty when nothing is held.
+    RETURN_TYPES = ("LATENT", "INT", "STRING", "STRING", "AUDIO",
+                    "CONDITIONING", "CONDITIONING",
+                    "INT", "INT", "INT", "FLOAT", "FLOAT")
+    RETURN_NAMES = ("latent", "overlap_frames", "source_video", "clip_name",
+                    "locked_audio", "positive", "positive_refine",
+                    "width", "height", "length", "seconds", "refine_multiplier")
     FUNCTION = "build"
     CATEGORY = "CGlide"
     DESCRIPTION = "MiniMax H3 director — first/last keyframes or omni references, with automatic reference tagging."
@@ -1098,6 +1359,300 @@ class CSGlideCast:
 
     # ---------------- continuation ----------------
 
+    # ---------------- locked audio: song + timeline pieces ----------------
+
+    @staticmethod
+    def _silence():
+        return {"waveform": torch.zeros((1, 2, 0)), "sample_rate": 32000}
+
+    # Inner edges of a placed piece hand over to H3 over this many audio latent
+    # frames (40 per second), so the held sound and the generated sound meet in
+    # a blend instead of a hard butt joint. Clip edges and edges against the
+    # song need no handover and get none.
+    EDGE_FRAMES = 4
+
+    def _lock_audio(self, cfg, audio_vae, latent, seconds):
+        """Write held audio into the AUDIO half of the target latent and pin it.
+
+        ComfyUI's MiniMaxH3 model takes a per-stream noise mask, per audio
+        latent frame: a row at mask 0 runs at AUDIO_COND_TIMESTEP and is
+        re-injected clean every step (model_base.MiniMaxH3.scale_latent_inpaint),
+        a row at mask 1 is generated as usual, anything between is held that
+        much. So sound can be held over part of a clip and generated over the
+        rest - the same inpainting the LTX director does, on H3's audio.
+
+        Two layers, song first:
+          song   - the project track, over the whole clip, at its own hold.
+          placed - audio slots on the timeline, each a [start, end] window of
+                   its file landing at `at` seconds into the clip. A later slot
+                   is written over an earlier one where they overlap.
+
+        Returns (latent, locked) where locked is the held sound as raw samples,
+        untouched by the VAE, plus a per-sample weight under "cglide_weight":
+        1 where the original should replace the decoded sound outright, 0 where
+        H3's own sound stands, ramped across the handovers. Glide Join splices
+        with it. Only a hold of exactly 1 is spliced - below that the point is
+        to let H3 rework the sound, so the decoded version is the one to keep.
+        """
+        song = cfg.get("song")
+        placed = [p for p in (cfg.get("placed") or []) if p]
+        if not song and not placed:
+            return latent, self._silence()
+        if audio_vae is None:
+            raise ValueError("H3 Studio: held audio (the song or timeline audio) needs "
+                             "the audio VAE connected (minimax_h3_audio_vae_fp32).")
+
+        video, audio = latent["samples"].unbind()
+        T = int(audio.shape[-1])
+        new_audio = audio.clone()
+        mask = torch.ones(T, dtype=torch.float32)      # 1 = generate
+        rate = None
+        layers = []                                     # (wave, sr, frame0, frames, hold, ramp_in, ramp_out)
+
+        def load(file, start, end):
+            try:
+                return _load_audio(file, start, end)
+            except ValueError:
+                return None                             # window past the end of the file
+
+        if song:
+            start = song["start"]
+            tr = load(song["file"], start, start + seconds)
+            sr = int(tr["sample_rate"]) if tr else 32000
+            wf = tr["waveform"] if tr else torch.zeros((1, 2, 0))
+            need = int(round(seconds * sr))
+            short = need - int(wf.shape[-1])
+            if short > 0:
+                wf = torch.cat([wf, torch.zeros(wf.shape[:-1] + (short,), dtype=wf.dtype)], dim=-1)
+            wf = wf[..., :need]
+            rate = sr
+            layers.append((wf, sr, 0, T, song["strength"], False, False))
+            print("[H3 Studio] song: %s %.3fs..%.3fs held at %.2f%s"
+                  % (song["file"], start, start + seconds, song["strength"],
+                     "" if short <= 0 else
+                     " - the song ends %.2fs early, silence after" % (short / float(sr))))
+
+        for n, p in enumerate(cfg.get("placed") or [], start=1):
+            if not p:
+                continue
+            f0 = int(round(p["at"] * AUDIO_LATENT_FPS))
+            if f0 >= T:
+                print("[H3 Studio] audio %d: placed at %.2fs, past the end of this "
+                      "%.2fs clip - skipped" % (n, p["at"], seconds))
+                continue
+            room = (T - f0) / float(AUDIO_LATENT_FPS)
+            end = p["end"]
+            want_end = p["start"] + room if end is None else min(end, p["start"] + room)
+            tr = load(p["file"], p["start"], want_end)
+            if tr is None:
+                print("[H3 Studio] audio %d: nothing in %s at %.2fs - skipped"
+                      % (n, p["file"], p["start"]))
+                continue
+            sr = int(tr["sample_rate"])
+            wf = tr["waveform"]
+            frames = min(T - f0, int(round(wf.shape[-1] / float(sr) * AUDIO_LATENT_FPS)))
+            if frames <= 0:
+                continue
+            if rate is None:
+                rate = sr
+            layers.append((wf, sr, f0, frames, p["hold"],
+                           f0 > 0 and not song, f0 + frames < T and not song))
+            print("[H3 Studio] audio %d: %s %.2fs..%.2fs placed at %.2fs..%.2fs in the "
+                  "clip, held at %.2f" % (n, p["file"], p["start"],
+                                          p["start"] + frames / float(AUDIO_LATENT_FPS),
+                                          f0 / float(AUDIO_LATENT_FPS),
+                                          (f0 + frames) / float(AUDIO_LATENT_FPS), p["hold"]))
+
+        if not layers:
+            return latent, self._silence()
+
+        rate = rate or 32000
+        n_out = int(round(seconds * rate))
+        exact = torch.zeros((2, n_out))
+        weight = torch.zeros(n_out)
+        per_frame = rate / float(AUDIO_LATENT_FPS)
+
+        for wf, sr, f0, frames, hold, r_in, r_out in layers:
+            # latent: encode this piece on its own, starting on its own frame
+            z, _ = self._encode_ref_audio(audio_vae, {"waveform": wf, "sample_rate": sr})
+            z = z.to(device=new_audio.device, dtype=new_audio.dtype)
+            k = min(frames, int(z.shape[-1]))
+            new_audio[..., f0:f0 + k] = z[..., :k].expand(new_audio.shape[0], -1, -1, -1)
+
+            # how much of each frame is held: 1 inside, ramped at inner edges
+            held = torch.ones(k)
+            e = min(self.EDGE_FRAMES, k // 2)
+            if e > 0:
+                ramp = torch.arange(1, e + 1, dtype=torch.float32) / (e + 1)
+                if r_in:
+                    held[:e] = ramp
+                if r_out:
+                    held[k - e:] = ramp.flip(0)
+            mask[f0:f0 + k] = 1.0 - hold * held
+
+            # exact samples for the splice, at the output rate
+            w = wf[0] if wf.dim() == 3 else wf
+            if sr != rate:
+                if torchaudio is None:
+                    raise RuntimeError("H3 Studio: torchaudio is needed to mix audio "
+                                       "files at different sample rates.")
+                w = torchaudio.functional.resample(w, sr, rate)
+            s0 = int(round(f0 * per_frame))
+            s1 = min(n_out, int(round((f0 + k) * per_frame)))
+            m = max(0, min(s1 - s0, int(w.shape[-1])))
+            exact[:, s0:s0 + m] = w[:2, :m]
+            if hold >= 1.0 - 1e-6:
+                ws = torch.nn.functional.interpolate(held.view(1, 1, -1), size=m,
+                                                     mode="linear", align_corners=True).view(-1)
+                weight[s0:s0 + m] = ws
+            else:
+                weight[s0:s0 + m] = 0.0
+
+        a_mask = mask.view(1, 1, 1, T).expand_as(new_audio).to(new_audio.dtype).clone()
+        out = dict(latent)
+        out["samples"] = comfy.nested_tensor.NestedTensor((video, new_audio))
+        out["noise_mask"] = comfy.nested_tensor.NestedTensor((torch.ones_like(video), a_mask))
+        held_frames = int((mask < 1.0 - 1e-6).sum())
+        if held_frames >= T:
+            print("[H3 Studio] audio held over the whole %.2fs clip" % seconds)
+        else:
+            print("[H3 Studio] audio held over %.2fs of %.2fs, H3 generates the rest"
+                  % (held_frames / float(AUDIO_LATENT_FPS), seconds))
+        return out, {"waveform": exact[None].contiguous(), "sample_rate": int(rate),
+                     "cglide_weight": weight}
+
+    @staticmethod
+    def _load_full(up, cfg):
+        """The clip's saved full latent, as (latent, frame_count, width, height)."""
+        path = _render_path(up.get("src"), FULL_SIDECAR)
+        if path is None:
+            who = clip_label(cfg) or "this clip"
+            raise FileNotFoundError(
+                "H3 Studio upscale pass: %s has no full latent (.h3full) next to its "
+                "draft render. Render its draft with save_latent = full on Glide "
+                "Video, then run the upscale pass again." % who)
+        from safetensors.torch import load_file
+        saved = load_file(path)
+        video = saved.get("video")
+        if video is None or video.dim() != 5:
+            raise ValueError("H3 Studio upscale pass: %s holds no video latent"
+                             % os.path.basename(path))
+        dev = comfy.model_management.intermediate_device()
+        video = video.to(dev)
+        audio = saved.get("audio")
+        if audio is not None:
+            samples = comfy.nested_tensor.NestedTensor((video, audio.to(dev)))
+        else:
+            samples = video
+        t = int(video.shape[2])
+        frames = 5 if t <= 2 else ((t - 2) // 5) * 17 + 5
+        print("[H3 Studio] upscale pass: loaded %s" % os.path.basename(path))
+        return ({"samples": samples}, frames,
+                int(video.shape[4]) * 16, int(video.shape[3]) * 16)
+
+    def _latent_hold(self, cfg, vae, latent, frame_count):
+        """LATENT HOLD: put the previous clip's sampled tail in the head of
+        this clip's latent and pin it with the noise mask.
+
+        Same machinery as the song lock, on the video half: held rows are
+        re-injected clean every step, the rest is generated. The previous
+        clip's frames are never decoded and re-encoded on the way in, so the
+        seam carries no VAE round trip, no chroma loss, no 8-bit rounding.
+
+        H3's video latent is laid out as a 2-frame head (5 pictures) followed
+        by 5-frame blocks (17 pictures each), so the hold takes the last
+        2 + 5k latent frames - the same count a 22 / 39 frame guide would
+        encode to. Whether a tail slice behaves as a clean head is the thing
+        to verify on the first render: guide_frames shows the held span
+        decoded, and it should look like the end of the previous clip.
+
+        Returns (latent, overlap_frames, preview) or None to fall back to the
+        guide path.
+        """
+        cont = cfg.get("cont")
+        if not cont:
+            return None
+        side = _find_latent_sidecar(cont)
+        if side is None:
+            print("[H3 Studio] latent hold: no .h3latent beside %s - wire the "
+                  "first sampler's LATENT into Glide Video. Falling back to the "
+                  "guide." % cont["file"])
+            return None
+        try:
+            from safetensors.torch import load_file
+            saved = load_file(side)
+        except Exception as e:
+            print("[H3 Studio] latent hold: could not read %s (%s) - falling back "
+                  "to the guide." % (side, e))
+            return None
+
+        video, audio = latent["samples"].unbind()
+        pv = saved.get("video")
+        if pv is None or pv.dim() != 5:
+            print("[H3 Studio] latent hold: %s holds no video latent - falling "
+                  "back to the guide." % os.path.basename(side))
+            return None
+        if tuple(pv.shape[3:]) != tuple(video.shape[3:]) or pv.shape[1] != video.shape[1]:
+            print("[H3 Studio] latent hold: sidecar is %dx%d latent, this clip is "
+                  "%dx%d - render both at the same canvas, and save the FIRST "
+                  "sampler's latent, not the refine pass. Falling back to the guide."
+                  % (pv.shape[4], pv.shape[3], video.shape[4], video.shape[3]))
+            return None
+
+        n = snap_guide_run(cont["frames"])
+        if n < MIN_REF_FRAMES:
+            n = 22
+        k = video_latent_t(n)
+        if k >= video.shape[2] or k > pv.shape[2]:
+            print("[H3 Studio] latent hold: %d latent frames do not fit (previous "
+                  "%d, this clip %d) - falling back to the guide."
+                  % (k, pv.shape[2], video.shape[2]))
+            return None
+
+        new_video = video.clone()
+        new_video[:, :, :k] = pv[:, :, -k:].to(device=video.device, dtype=video.dtype) \
+            .expand(video.shape[0], -1, -1, -1, -1)
+        v_mask = torch.ones_like(video)
+        v_mask[:, :, :k] = 0.0
+
+        # audio: keep any lock already on it (the song), otherwise hold the
+        # previous clip's own sound over the same span when its sound is on
+        old_mask = latent.get("noise_mask")
+        if old_mask is not None:
+            a_mask = old_mask.unbind()[1].clone()
+        else:
+            a_mask = torch.ones_like(audio)
+        new_audio = audio
+        pa = saved.get("audio")
+        held_audio = 0
+        song_on = bool(cfg.get("song")) or any(cfg.get("placed") or [])
+        if cont.get("audio") and pa is not None and not song_on \
+                and pa.dim() == audio.dim() and pa.shape[1:-1] == audio.shape[1:-1]:
+            ka = min(int(round(n / float(FPS) * AUDIO_LATENT_FPS)),
+                     int(pa.shape[-1]), int(audio.shape[-1]) - 1)
+            if ka > 0:
+                new_audio = audio.clone()
+                new_audio[..., :ka] = pa[..., -ka:].to(device=audio.device, dtype=audio.dtype)
+                a_mask[..., :ka] = 0.0
+                held_audio = ka
+
+        out = dict(latent)
+        out["samples"] = comfy.nested_tensor.NestedTensor((new_video, new_audio))
+        out["noise_mask"] = comfy.nested_tensor.NestedTensor((v_mask, a_mask))
+
+        # guide_frames is retired: it was a check while latent hold was new.
+        # The socket stays (outputs connect by position, removing it would
+        # shift every wire after it in saved workflows) but nothing is decoded
+        # for it any more.
+        preview = None
+
+        print("[H3 Studio] latent hold: %d latent frames (%d pictures) from %s%s, "
+              "overlap %d"
+              % (k, n, os.path.basename(side),
+                 ", sound held %.2fs" % (held_audio / float(AUDIO_LATENT_FPS))
+                 if held_audio else "", n))
+        return out, n, preview
+
     def _continuation(self, cfg, vae, audio_vae, latent, width, height, frame_count):
         """Anchor the previous clip's tail at frame 0 of this one.
 
@@ -1219,8 +1774,25 @@ class CSGlideCast:
             refine_cond, when given, is a SECOND encode of the same prompt whose
             image references were built larger (see _refs). It goes out on
             positive_refine instead of the stripped copy of cond."""
-            guide, overlap, guide_frames = self._continuation(
-                cfg, vae, audio_vae, latent, width, height, frame_count)
+            if up:
+                refine = refine_cond if refine_cond is not None else cond
+                print("[H3 Studio] upscale pass: %s, %d frames%s"
+                      % (clip_label(cfg) or "clip", frame_count,
+                         (", joins onto %s (%d overlap)"
+                          % (os.path.basename(up_source), up_overlap)) if up_source else ""))
+                return (latent, up_overlap, up_source, clip_label(cfg), locked_audio,
+                        cond, self._without_keyframes(refine),
+                        width, height, frame_count, seconds, refine_mul)
+            lat = latent
+            held = None
+            if cfg.get("cont_latent") and cfg.get("cont"):
+                held = self._latent_hold(cfg, vae, latent, frame_count)
+            if held is not None:
+                lat, overlap, guide_frames = held
+                guide = None
+            else:
+                guide, overlap, guide_frames = self._continuation(
+                    cfg, vae, audio_vae, latent, width, height, frame_count)
             # exactly what was encoded, so the anchored run can be LOOKED AT
             # instead of inferred from the result of a six minute sample
             if guide_frames is None:
@@ -1230,20 +1802,33 @@ class CSGlideCast:
                 keyframes.append(guide)
                 cond = node_helpers.conditioning_set_values(
                     cond, {"minimax_keyframes": keyframes})
-            self._audit_audio(cond, latent)
+            self._audit_audio(cond, lat)
             source = ""
             if cfg.get("cont"):
                 source = _resolve_asset(cfg["cont"]["file"]) or cfg["cont"]["file"]
-            return (cond, latent, width, height, frame_count, seconds, overlap,
-                    source, guide_frames,
+            return (lat, overlap, source, clip_label(cfg), locked_audio, cond,
                     self._without_keyframes(refine_cond
                                             if refine_cond is not None else cond),
-                    clip_label(cfg))
+                    width, height, frame_count, seconds, refine_mul)
 
         width = max(CANVAS_MULTIPLE, (cfg["width"] // CANVAS_MULTIPLE) * CANVAS_MULTIPLE)
         height = max(CANVAS_MULTIPLE, (cfg["height"] // CANVAS_MULTIPLE) * CANVAS_MULTIPLE)
         latent, frame_count = _empty_av_latent(width, height, cfg["length"])
         seconds = frame_count / FPS
+        refine_mul = float(cfg.get("ref_refine_scale") or 1.0)
+        latent, locked_audio = self._lock_audio(cfg, audio_vae, latent, seconds)
+
+        up = cfg.get("upscale")
+        up_source, up_overlap = "", 0
+        if up:
+            latent, frame_count, width, height = self._load_full(up, cfg)
+            seconds = frame_count / FPS
+            cfg["cont"] = None                     # the take already holds its join
+            up_source = _render_path(up["prev"]) or ""
+            up_overlap = up["overlap"] if up_source else 0
+            if up["prev"] and not up_source:
+                print("[H3 Studio] upscale: the previous clip's upscaled render %r "
+                      "is gone - this clip goes out unjoined" % up["prev"]["name"])
 
         if cfg["mode"] == "fl2va":
             first = first_frame if first_frame is not None else (
@@ -1252,7 +1837,8 @@ class CSGlideCast:
                 _load_image(cfg["last"]["file"]) if cfg["last"] else None)
 
             tags, _ = build_tag_map(cfg, first is not None, last is not None)
-            prompt = transcribe_prompt(cfg["prompt"], tags, ["@first", "@last"])
+            prompt = transcribe_prompt(strip_placed_tokens(cfg["prompt"], cfg),
+                                       tags, ["@first", "@last"])
 
             images, keyframes = [], []
             if first is not None:
@@ -1281,7 +1867,8 @@ class CSGlideCast:
                  + [f"@videoaudio{i}" for i in range(1, MAX_VIDEOS + 1)]
                  + [f"@audio{i}" for i in range(1, MAX_AUDIOS + 1)])
         tags, presentation = build_tag_map(cfg, False, False)
-        prompt = transcribe_prompt(inject_carry_note(cfg, tags), tags, known)
+        prompt = transcribe_prompt(strip_placed_tokens(inject_carry_note(cfg, tags), cfg),
+                                   tags, known)
 
         ref_items, ref_blocks = self._refs(cfg, vae, audio_vae, width, height, frame_count)
         if presentation:
@@ -1302,7 +1889,6 @@ class CSGlideCast:
         # tokens built from another is a mismatch waiting to surface inside the
         # sampler. Costs one extra text encode, and only when asked for.
         refine_cond = None
-        refine_mul = cfg.get("ref_refine_scale") or 1.0
         if refine_mul > 1.0 and any(s is not None for s in cfg["images"]):
             print("[H3 Studio] refine references at %.2gx" % refine_mul)
             r_items, r_blocks = self._refs(cfg, vae, audio_vae, width, height,
