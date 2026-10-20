@@ -8,7 +8,7 @@ It is an internal development document, not part of the proposed upstream issue.
 
 ## Current checkpoint — 2026-10-12
 
-2026-10-20 planning follow-up: [Timestamped dialogue clip creator](timestamped-dialogue-clip-creator.md) is a new deferred roadmap item for Simon-style projects. Audio plus a Qwen/SRT transcript will drive speech-aware clip grouping, timestamp-derived locked audio windows, and exact per-clip dialogue prompts. The initial 8-second maximum includes continuation overlap and frame-grid rounding. Work begins after the user's current rendering tests; requirements are documented, not implemented or render-validated.
+2026-10-20 planning follow-up: [Timestamped dialogue clip creator](timestamped-dialogue-clip-creator.md) is a new deferred roadmap item for Simon-style projects. Obtain dialogue timing through integrated Qwen transcription, timestamp-file import, or copy/paste of SRT/Qwen text, then review it before speech-aware grouping, timestamp-derived locked audio windows, and exact per-clip dialogue prompts. Explicit transcription waits for idle rendering resources; it is now in scope, superseding the earlier transcript-import-only plan. The initial 8-second maximum includes continuation overlap and frame-grid rounding. Work begins after the user's current rendering tests; requirements are documented, not implemented or render-validated.
 
 2026-10-17 follow-up: the user confirmed **Apply & continue** works. Companion commit `9465a93` (pushed to companion `main` with user authorization on this date) adds waveform trim handles to workspace audio/video previews, synchronized time fields, keyboard controls, and video seeking. Isolated synthetic-media checks passed; see the handoff for verification scope. Core changes in this follow-up are documentation only. Real-project evaluation remains pending.
 
@@ -564,7 +564,8 @@ Implementation ownership: native typed trim fields and `projectNavigation.append
 ### Planned: Timestamped dialogue clip creator — after rendering tests
 
 - [ ] Implement the [requirements and acceptance checks](timestamped-dialogue-clip-creator.md) after the user finishes the current generation evaluation.
-- [ ] Accept one source recording, Qwen timestamp lines or SRT, and shared visual prompts/references; create editable per-clip prompts containing the exact assigned dialogue.
+- [ ] Accept one source recording and shared visual prompts/references; offer integrated Qwen transcription, `.srt`/timestamped `.txt` file import, and pasted SRT/Qwen timestamps, followed by editable transcript review and exact per-clip dialogue prompts.
+- [ ] Run transcription only on explicit request after active/pending rendering work finishes; handle alignment errors, cancellation, and stale results without affecting another job. Imported/pasted transcripts require no inference.
 - [ ] Group by speech boundaries, enforce a configurable hard generated-duration maximum (initially 8 seconds including overlap), and handle H3's frame grid without clipping or repeating words.
 - [ ] Preview audio windows, dialogue, frame counts, overlap, adjustments, and validation issues before atomic project creation/export with Revert.
 - [ ] Evaluate explicit locked Timeline audio against Song-mode source-clock mapping before choosing the final audio strategy. No automatic rendering is part of creation.
