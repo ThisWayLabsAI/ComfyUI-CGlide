@@ -8,6 +8,8 @@ It is an internal development document, not part of the proposed upstream issue.
 
 ## Current checkpoint — 2026-10-12
 
+2026-10-20 planning follow-up: [Timestamped dialogue clip creator](timestamped-dialogue-clip-creator.md) is a new deferred roadmap item for Simon-style projects. Audio plus a Qwen/SRT transcript will drive speech-aware clip grouping, timestamp-derived locked audio windows, and exact per-clip dialogue prompts. The initial 8-second maximum includes continuation overlap and frame-grid rounding. Work begins after the user's current rendering tests; requirements are documented, not implemented or render-validated.
+
 2026-10-17 follow-up: the user confirmed **Apply & continue** works. Companion commit `9465a93` (pushed to companion `main` with user authorization on this date) adds waveform trim handles to workspace audio/video previews, synchronized time fields, keyboard controls, and video seeking. Isolated synthetic-media checks passed; see the handoff for verification scope. Core changes in this follow-up are documentation only. Real-project evaluation remains pending.
 
 See [development handoff](../README.md#current-handoff--2026-10-12) for repository baselines, the authorized commit/push batch, and remaining evaluation. All 52 companion tests passed on this date. The user reported successful real-render batch testing and working find/replace. Duration statistics, bulk section editing, highlighted find previews, and Apply & continue are implemented; the Edit sections activation fix still needs user confirmation (Apply & continue was confirmed on 2026-10-17). No stable promotion is authorized. Prior dated plans and decisions below preserve history; use the latest checked implementation entries and this checkpoint for present behavior.
@@ -558,6 +560,14 @@ User use cases: generate a music video from a long song in manageable approximat
 Timing/import contract: `state.slots.videos[i]` and `state.slots.audios[i]` use `file`, `start`, `end`, and `dur`; times are numeric seconds, and `dur` describes the complete source. Video `audio` explicitly opts into its soundtrack. Project JSON has `shots[].state`, unique clip IDs, and `meta.links: 1` to avoid legacy link inference. This implementation reuses the source file via ranges, not physical sliced files. Extremely short remainders below the minimum supported duration are refused when Keep is selected; choose Discard or adjust the range.
 
 Implementation ownership: native typed trim fields and `projectNavigation.appendClips` / `clipSettings.framesForSegment` stay authoritative in core; the pure range/template planner and batch form live in companion `cglide_reference_batch_model.js` and `cglide_reference_batch.js`. Keep the generic core changes separable from private documentation and TWL UI in potential upstream PRs.
+
+### Planned: Timestamped dialogue clip creator — after rendering tests
+
+- [ ] Implement the [requirements and acceptance checks](timestamped-dialogue-clip-creator.md) after the user finishes the current generation evaluation.
+- [ ] Accept one source recording, Qwen timestamp lines or SRT, and shared visual prompts/references; create editable per-clip prompts containing the exact assigned dialogue.
+- [ ] Group by speech boundaries, enforce a configurable hard generated-duration maximum (initially 8 seconds including overlap), and handle H3's frame grid without clipping or repeating words.
+- [ ] Preview audio windows, dialogue, frame counts, overlap, adjustments, and validation issues before atomic project creation/export with Revert.
+- [ ] Evaluate explicit locked Timeline audio against Song-mode source-clock mapping before choosing the final audio strategy. No automatic rendering is part of creation.
 
 ### Milestone 5: Script breakdown and coverage planning
 

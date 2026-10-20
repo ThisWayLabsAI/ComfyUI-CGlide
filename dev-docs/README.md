@@ -6,6 +6,10 @@ These documents belong on `TWL-ComfyUI-CGlide-Dev`. They are not part of the ups
 
 ## Current handoff — 2026-10-12
 
+2026-10-20 deferred feature: the user requested a [timestamped dialogue clip creator](roadmaps/timestamped-dialogue-clip-creator.md), linked from the main roadmap. It will accept an audio recording plus Qwen/SRT dialogue timing and shared visual instructions, create dialogue-aware clips with exact spoken-text prompts, and enforce an initial 8-second generated-duration ceiling including continuation overlap. Requirements, audio-strategy decisions, preview/apply safeguards, and acceptance checks are documented. **Do not start implementation until the user's current rendering tests are finished and they resume this item.** This is planned work, not an implemented or validated feature.
+
+Planning documentation is being maintained in the separate `C:\Users\steven\Documents\CGlide-Dev-Planning` worktree on `TWL-ComfyUI-CGlide-Dev`. The installed repositories remain on their local `integration/twl-upstream-v1.4.6` branches during user rendering evaluation; do not switch their branches or interrupt renders to resume planning.
+
 Read this section first in a new session, then the roadmap's latest implementation checklists and symbol-based conflict inventory. Earlier dated decisions explain history; they do not override later explicit decisions or the current implementation.
 
 ### Repositories and pushed code baselines
