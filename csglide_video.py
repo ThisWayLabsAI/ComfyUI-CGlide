@@ -15,9 +15,11 @@ Drop this next to csglide_video_presets.py and register it in __init__.py.
 import collections
 import json
 import os
+import re
 import shutil
 import tempfile
 import threading
+from datetime import datetime
 
 import numpy as np
 
@@ -69,11 +71,77 @@ def _temp_dir():
     return tempfile.gettempdir()
 
 
+# Date placeholders in filename_prefix, VideoHelperSuite / ComfyUI style.
+# Contributed by Muxelmann (PR #32). Every placeholder expands to digits only,
+# so it can never put a ".." or a slash into the path by itself.
+_DATE_TOKENS = re.compile(r"yyyy|yy|MM|M|dd|d|hh|h|mm|m|ss|s")
+_DATE_PLACEHOLDERS = re.compile(r"%date:([^%]+)%")
+
+
+def _expand_filename_prefix(prefix):
+    """Expand %date:yyyy-MM-dd% style placeholders, plus %year% .. %second%."""
+    now = datetime.now()
+    values = {
+        "yyyy": "%04d" % now.year,
+        "yy": "%02d" % (now.year % 100),
+        "MM": "%02d" % now.month,
+        "M": str(now.month),
+        "dd": "%02d" % now.day,
+        "d": str(now.day),
+        "hh": "%02d" % now.hour,
+        "h": str(now.hour),
+        "mm": "%02d" % now.minute,
+        "m": str(now.minute),
+        "ss": "%02d" % now.second,
+        "s": str(now.second),
+    }
+
+    def replace_date(match):
+        return _DATE_TOKENS.sub(lambda t: values[t.group(0)], match.group(1))
+
+    prefix = _DATE_PLACEHOLDERS.sub(replace_date, prefix)
+
+    simple = {
+        "year": values["yyyy"], "month": values["MM"], "day": values["dd"],
+        "hour": values["hh"], "minute": values["mm"], "second": values["ss"],
+    }
+    for name, value in simple.items():
+        prefix = prefix.replace("%" + name + "%", value)
+    return prefix
+
+
+def _inside(root, target):
+    """True when target is root or sits somewhere under it.
+
+    realpath on both sides, so "..", symlinks and junctions are resolved
+    before comparing. normcase because Windows paths compare case-blind.
+    commonpath raises on two different drives -- that is outside too.
+    """
+    root = os.path.normcase(os.path.realpath(root))
+    target = os.path.normcase(os.path.realpath(target))
+    try:
+        return os.path.commonpath([root, target]) == root
+    except ValueError:
+        return False
+
+
 def _next_path(directory, prefix, ext):
-    """ComfyUI-style incrementing filename: prefix_00001.ext"""
+    """ComfyUI-style incrementing filename: prefix_00001.ext
+
+    The prefix comes from a widget, so it is checked: the folder it names
+    must stay inside the output (or temp) folder. Without this, a prefix
+    like "../../somewhere" or an absolute "C:/somewhere" would write -- and
+    create folders -- anywhere on the disk.
+    """
+    prefix = _expand_filename_prefix(str(prefix or ""))
     subdir = os.path.dirname(prefix)
     base = os.path.basename(prefix) or "glide"
     target = os.path.join(directory, subdir) if subdir else directory
+    if not _inside(directory, target):
+        raise ValueError(
+            "Glide Video: filename_prefix '%s' points outside the output "
+            "folder. Use a relative path like 'glide/MyClip' -- a slash makes "
+            "a subfolder, '..' and absolute paths are refused." % prefix)
     os.makedirs(target, exist_ok=True)
 
     n = 1
@@ -86,6 +154,109 @@ def _next_path(directory, prefix, ext):
 
     filename = "%s_%05d.%s" % (base, n, ext)
     return os.path.join(target, filename), filename, subdir
+
+
+LATENT_SIDECAR = ".h3latent"
+
+# Only the TAIL is kept: latent hold reads nothing else. 12 latent frames is
+# the longest overlap H3 Studio offers (39 pictures); 72 audio latent frames
+# covers its sound (65 at 40/s) with a little margin. ~5 MB instead of ~30.
+SIDECAR_VIDEO_TAIL = 12
+SIDECAR_AUDIO_TAIL = 72
+
+# The WHOLE latent, for upscaling a take later with Glide Latent Load. Its own
+# extension on purpose: "Delete latents" in H3 Studio only removes .h3latent
+# (the chaining tails), so a full latent kept for an upscale is never swept.
+FULL_SIDECAR = ".h3full"
+SAVE_LATENT_CHOICES = ["tail", "full", "off"]
+
+
+def _latent_parts(latent):
+    samples = latent.get("samples") if isinstance(latent, dict) else None
+    if samples is None:
+        return None
+    if hasattr(samples, "unbind"):
+        parts = samples.unbind()
+    elif hasattr(samples, "tensors"):
+        parts = samples.tensors
+    else:
+        parts = (samples,)
+    if len(parts) < 1 or parts[0].dim() != 5:
+        return None
+    return parts
+
+
+def _save_full_latent(latent, video_path):
+    """The whole sampled latent beside the video, as <name>.h3full."""
+    if latent is None:
+        return None
+    try:
+        from safetensors.torch import save_file
+        parts = _latent_parts(latent)
+        if parts is None:
+            print("[Glide Video] latent is not an H3 audio+video latent - "
+                  "no full latent written")
+            return None
+        tensors = {"video": parts[0].detach().float().cpu().contiguous()}
+        if len(parts) > 1 and parts[1] is not None:
+            tensors["audio"] = parts[1].detach().float().cpu().contiguous()
+        path = os.path.splitext(video_path)[0] + FULL_SIDECAR
+        save_file(tensors, path, metadata={"format": "cglide-h3full-1",
+                                           "video": os.path.basename(video_path)})
+        print("[Glide Video] full latent -> %s  (%.1f MB)"
+              % (os.path.basename(path), os.path.getsize(path) / 1048576.0))
+        return path
+    except Exception as e:
+        print("[Glide Video] could not write the full latent (%s)" % e)
+        return None
+
+
+def _save_latent_sidecar(latent, video_path):
+    """Write the sampled H3 latent beside the video it decodes to.
+
+    H3 Studio's CONTINUE FROM can then hold the TAIL OF THIS LATENT in the
+    head of the next clip (latent hold) instead of re-encoding decoded
+    frames - no VAE round trip, no chroma or 8-bit loss at the seam.
+
+    Saved next to the master as <name>.h3latent (a safetensors file holding
+    "video" and "audio"), so anything that knows where the clip went also
+    knows where its latent is. Wire the FIRST sampler's output: a refine pass
+    on an upscaled latent has a different size and cannot be held at the
+    canvas.
+    """
+    if latent is None:
+        return None
+    try:
+        from safetensors.torch import save_file
+        samples = latent.get("samples") if isinstance(latent, dict) else None
+        if samples is None:
+            return None
+        if hasattr(samples, "unbind"):
+            parts = samples.unbind()
+        elif hasattr(samples, "tensors"):
+            parts = samples.tensors
+        else:
+            parts = (samples,)
+        if len(parts) < 1 or parts[0].dim() != 5:
+            print("[Glide Video] latent is not an H3 audio+video latent - "
+                  "no sidecar written")
+            return None
+        v_full = parts[0]
+        tensors = {"video": v_full[:, :, -SIDECAR_VIDEO_TAIL:].detach().float().cpu().contiguous()}
+        if len(parts) > 1 and parts[1] is not None:
+            a_full = parts[1]
+            tensors["audio"] = a_full[..., -SIDECAR_AUDIO_TAIL:].detach().float().cpu().contiguous()
+        path = os.path.splitext(video_path)[0] + LATENT_SIDECAR
+        save_file(tensors, path, metadata={"format": "cglide-h3latent-2-tail",
+                                           "source_latent_frames": str(int(v_full.shape[2]))})
+        v = tensors["video"]
+        print("[Glide Video] latent sidecar (tail) -> %s  (video %s%s)"
+              % (os.path.basename(path), tuple(v.shape),
+                 ", audio %s" % (tuple(tensors["audio"].shape),) if "audio" in tensors else ""))
+        return path
+    except Exception as e:
+        print("[Glide Video] could not write the latent sidecar (%s)" % e)
+        return None
 
 
 def _free_space_mb(path):
@@ -333,7 +504,11 @@ class CSGlideVideo:
                 "filename_prefix": ("STRING", {
                     "default": "glide/GlideVideo",
                     "tooltip": "Path under the output folder. A slash makes a "
-                               "subfolder. A counter is appended automatically.",
+                               "subfolder. A counter is appended automatically. "
+                               "Date placeholders work: %date:yyyy-MM-dd%, "
+                               "%date:hh-mm-ss%, %year%, %month%, %day%. "
+                               "Keep other text outside the %date:...% part "
+                               "-- letters like s, h, m, d inside it become numbers.",
                 }),
                 "save_output": ("BOOLEAN", {
                     "default": True,
@@ -363,11 +538,29 @@ class CSGlideVideo:
                     "default": "auto",
                     "tooltip": container_tip,
                 }),
+                # Appended last for the same reason as container.
+                "save_latent": (SAVE_LATENT_CHOICES, {
+                    "default": "tail",
+                    "tooltip": "Only used when the latent input is wired.\n"
+                               "tail -- <name>.h3latent, ~5 MB: what H3 Studio "
+                               "needs to continue a linked clip (latent hold).\n"
+                               "full -- also <name>.h3full, the whole latent "
+                               "(~30 MB), to upscale this take later with "
+                               "Glide Latent Load. Delete latents never removes "
+                               "these.\n"
+                               "off -- nothing saved.",
+                }),
             },
             "optional": {
                 "audio": ("AUDIO", {
                     "tooltip": "From VAEDecodeAudio. Muxed in the same pass, "
                                "so there is no second file.",
+                }),
+                "latent": ("LATENT", {
+                    "tooltip": "Optional: the FIRST sampler's output. Saved next "
+                               "to the video as <name>.h3latent so H3 Studio's "
+                               "CONTINUE FROM can hold it exactly (latent hold) "
+                               "instead of re-encoding decoded frames.",
                 }),
                 "chain": ("STRING", {
                     "forceInput": True,
@@ -397,7 +590,7 @@ class CSGlideVideo:
     def combine(self, images, fps, preset, filename_prefix,
                 save_output=True, save_metadata=True, fallback_on_failure=True,
                 container="auto", audio=None, chain=None, prompt=None,
-                extra_pnginfo=None):
+                extra_pnginfo=None, latent=None, save_latent="tail"):
         banner()          # names the ffmpeg in use, once per session
         if images is None or len(images) == 0:
             raise ValueError("Glide Video: no frames on the images input.")
@@ -575,6 +768,11 @@ class CSGlideVideo:
                     except OSError:
                         pass
 
+        if latent is not None and save_latent != "off":
+            _save_latent_sidecar(latent, result["out_path"])
+            if save_latent == "full":
+                _save_full_latent(latent, result["out_path"])
+
         # -- UI payload --------------------------------------------------
         ui_name = result["preview_name"] or result["filename"]
         ui_type = "temp" if (result["preview_path"] or not save_output) else "output"
@@ -596,6 +794,15 @@ class CSGlideVideo:
                     "height": int(height),
                     "format": "video/mp4" if ui_name.endswith(".mp4") else "video/" + result["ext"],
                     "master": os.path.basename(result["out_path"]),
+                    # Where the master really is. The entry's own subfolder
+                    # describes the preview proxy (a temp file at the root),
+                    # so without these a reader had to guess the folder - and
+                    # H3 Studio guessed the output root, which picks up an
+                    # older render with the same name when a project writes
+                    # into a folder of its own (Music_clip1/02_00001.mkv vs
+                    # output/02_00001.mkv).
+                    "master_subfolder": (result["subdir"] or "").replace("\\", "/"),
+                    "master_type": "output" if save_output else "temp",
                     "stream": result["stream"],
                 }],
             },
