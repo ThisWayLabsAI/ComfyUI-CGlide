@@ -1,10 +1,27 @@
 # Timestamped dialogue clip creator
 
-Requested: 2026-10-20. Implementation resumed with user authorization on 2026-10-22. Status: **prototype implemented in separate development worktrees; real ASR/GPU evaluation pending**. Earlier deferral is superseded.
+Requested: 2026-10-20. Implementation resumed with user authorization on 2026-10-22. Status: **prototype activated; full-recording ASR validated after recovery fix; generated-video evaluation pending**. Earlier deferral is superseded.
 
 The prototype covers the three explicit input routes, editable transcript review/export, word-aligned safe subdivision, sentence/pause-aware grouping, locked Timeline audio, overlap-inclusive frame limits, editable prompt previews, project export and atomic new-project creation. It uses installed local Qwen models through a single normal ComfyUI queue node, never a separate inference thread or global interrupt. Missing/incomplete models are refused without downloads. Nonempty append remains unsupported. Shared prompts require an explicit `{{dialogue}}` marker and removal of old speech; unsafe or unaligned cuts require reviewed timing correction or retranscription. Saved `timing` metadata makes the matching core retain 24 fps and 22/39-frame overlap through native export/import and Revert.
 
 Verification: 68 companion JavaScript tests, 5 mocked Python adapter tests, and 9 core JavaScript creation/integration tests pass. Isolated browser fixtures cover preview, prompt edits, export/create, stale state, queue waiting/cancellation and source changes, with zero scoped accessibility violations and contrast-review items. **No real Qwen inference, GPU render, or actual generated continuity/lip-sync validation has occurred.** Synthetic source-sample checks model the planned joins, not H3's 40 Hz audio latent quantization. Compare Timeline and Song on short real speech before selecting an established default. The final frame-grid allowance is displayed as an unheld audio tail, not guaranteed silence; H3 may generate sound there, so trim it in post against the source. Text transcript exports preserve supplied precision; SRT uses milliseconds.
+
+## 2026-10-22 ASR recovery and progress validation
+
+The first real full-recording test exposed zero-length Qwen word timestamps.
+The adapter now merges shared/zero-length/overlapping word boundaries into
+indivisible observed phrase spans, preserves all text, and displays review notes.
+No precise internal cut is invented. Truly invalid/all-zero alignment still
+fails. One real full approximately 81-second recording now succeeds (31 cues,
+173 words, four zero-length timings, 169 timed units). Its output passes the
+actual core frame planner at both overlap settings, preserving all words and
+the eight-second ceiling. This supersedes the earlier no-real-ASR status below;
+it does not validate generated video, audio joins, or lip sync.
+
+A reusable H3-styled spinner footer provides indeterminate progress, elapsed
+time and accessible cancellation through waiting/queued/running states, with
+cleanup on all exits. Optional recognition hints now have inline guidance.
+68 JS tests, 7 mocked backend tests and isolated browser checks pass.
 
 ## 2026-10-22 activation and timing clarification
 

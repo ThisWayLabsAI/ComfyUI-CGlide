@@ -6,6 +6,15 @@ These documents belong on `TWL-ComfyUI-CGlide-Dev`. They are not part of the ups
 
 ## Current handoff - 2026-10-22
 
+### ASR recovery and progress follow-up - 2026-10-22
+
+The user reported that full-recording Simon transcription failed at Word 10 and requested visible spinning progress plus clearer hints guidance. Companion `fe8ea3c` is installed on the active integration branch. The prior per-word validator rejected Qwen zero-length/overlapping timings. The adapter now preserves every word in indivisible observed phrase spans, keeping uncertain boundaries out of the cut planner. It does not invent word times or discard words. Invalid/nonfinite/reversed/out-of-source and all-zero alignment still fail with specific timing details; review notes explain merged boundaries.
+
+After confirming idle rendering and restarting ComfyUI through Manager, one diagnostic replay used the same full approximately 81-second recording and ASR settings. **Real Qwen transcription succeeded: 31 cues, 173 original words, four zero-length word timings, 169 timed units.** Its actual result passed the planner with the real core frame catalog at both 22- and 39-frame overlap: 13 and 15 clips respectively, all at or below 192 frames, exact spoken-text preservation, and an explicitly displayed approximately 0.142-second unheld final allowance. No video render or project creation was submitted. Private source/transcript diagnostics remain local in temporary storage and are not in Git.
+
+The existing dialogue shell now uses H3 neutral grays and blue accent. A reusable indeterminate spinner/elapsed-time footer stays visible while preparing, waiting, queued or transcribing, with accessible Cancel transcription. It supports reduced motion and cleans up on success, failure, cancellation and dialog destruction. ASR hints is labeled optional and explained as recognition context for names/spellings, unrelated to dialogue text, visuals or timing. Browser fixtures verified animation, elapsed time, visible footer/cancel, success/cancellation cleanup and persistent alignment-review notes, with zero scoped accessibility violations. **68 companion JS and 7 mocked Python adapter tests pass.** Core source is unchanged by this follow-up. The user needs Ctrl+F5 for the frontend; the backend has already restarted with the fix. Video/audio preservation, lip sync and generated continuity still need user render evaluation.
+
+
 ### Activation follow-up - 2026-10-22
 
 The user explicitly authorized installing the prototype for normal ComfyUI testing. Both installed repositories remain on `integration/twl-upstream-v1.4.6`: core `5205959` (creation seam `eca2cd5`, selected from Dev `fd8acbd`, plus current build identity), companion `79b1c30` (prototype plus unified launcher). Stable branches are not promoted. The matching Dev implementation and companion feature branch are retained.
