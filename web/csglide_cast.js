@@ -9551,7 +9551,7 @@ function buildUI(node) {
 /* Printed once on load: which build of this file the browser is running.
    Browsers cache extension scripts hard, so "I updated it and nothing
    changed" is answered by this line before anything else. */
-const H3_BUILD = "1.4.6 + TWL integration \u00b7 2026-10-20";
+const H3_BUILD = "1.4.6 + TWL dialogue prototype \u00b7 2026-10-22";
 console.log(`[H3 Studio] build ${H3_BUILD}`);
 
 app.registerExtension({
