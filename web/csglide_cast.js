@@ -1843,6 +1843,8 @@ function buildUI(node) {
      runs from render(), which can fire before settings() is set up. Only the
      grid sizes exist (17k+5), and 5 is too short to carry motion. */
   const overlapFrames = () => {
+    const timing = node.properties?.gcast_project?.timing;
+    if (timing?.version === 1 && timing.fps === FPS && [22, 39].includes(timing.overlapFrames)) return timing.overlapFrames;
     const s = node.properties && node.properties.gcast_settings;
     return (s && +s.overlap === 39) ? 39 : 22;
   };
@@ -5401,7 +5403,7 @@ function buildUI(node) {
   function projSnapshot() {
     const p = node.properties && node.properties.gcast_project;
     if (!p || !Array.isArray(p.shots) || !p.shots.length) return null;
-    return { name: p.name || "", idx: p.idx, shots: clone(p.shots) };
+    return { name: p.name || "", idx: p.idx, shots: clone(p.shots), timing: clone(p.timing || null) };
   }
 
   function snapProject(why) {
@@ -5409,7 +5411,7 @@ function buildUI(node) {
     if (!snap) return;                     // an empty project has nothing to lose
     node.properties.gcast_project_prev = {
       why: why || "", at: Date.now(),
-      name: snap.name, idx: snap.idx, shots: snap.shots,
+      name: snap.name, idx: snap.idx, shots: snap.shots, timing: snap.timing,
     };
   }
 
@@ -5446,11 +5448,15 @@ function buildUI(node) {
     node.properties.gcast_project = { name: b.name || "", idx: b.idx, shots: clone(b.shots) };
     /* The song is a project setting, not part of the clip list the snapshot
        holds - Revert puts the clips back and leaves the track where it is. */
-    if (keepSong) node.properties.gcast_project.song = keepSong;
+    if (b.timing) node.properties.gcast_project.timing = clone(b.timing);
+    if (b.restoreSong) {
+      if (b.song) node.properties.gcast_project.song = clone(b.song);
+    } else if (keepSong) node.properties.gcast_project.song = keepSong;
     if (now) {
       node.properties.gcast_project_prev = {
         why: "before Revert", at: Date.now(),
-        name: now.name, idx: now.idx, shots: now.shots,
+        name: now.name, idx: now.idx, shots: now.shots, timing: now.timing,
+        ...(b.restoreSong ? { restoreSong: true, song: clone(keepSong || null) } : {}),
       };
     } else {
       delete node.properties.gcast_project_prev;
@@ -7025,7 +7031,7 @@ function buildUI(node) {
     return new Blob([JSON.stringify({
       meta: { app: "H3 Studio project", version: 1, links: 1, saved: new Date().toISOString() },
       name: p.name || "", idx: p.idx, shots: p.shots,
-      song: p.song || null,
+      song: p.song || null, timing: p.timing || null,
     }, null, 1)], { type: "application/json" });
   }
 
@@ -7151,7 +7157,7 @@ function buildUI(node) {
       entries.unshift({ name: "project.json", data: enc.encode(JSON.stringify({
         meta: { app: "H3 Studio project", version: 1, packed: true, links: 1,
                 shots: shots.length, saved: new Date().toISOString() },
-        name: p.name || "", idx: p.idx, shots, song,
+        name: p.name || "", idx: p.idx, shots, song, timing: p.timing || null,
       }, null, 1)) });
 
       const stem = (p.name || "h3-project").replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-") || "h3-project";
@@ -7238,6 +7244,7 @@ function buildUI(node) {
       }
 
       if (!d || !Array.isArray(d.shots)) throw new Error("not an H3 Studio project file");
+      const importedTiming = cleanProjectTiming(d.timing);
       const p = proj();
       /* opening replaces whatever is in the list, same as closing it */
       if (p.shots.length && !confirm(
@@ -7245,6 +7252,7 @@ function buildUI(node) {
             `with ${picked.file.name}?`)) return;
       snapProject("before opening " + picked.file.name);
       p.name = typeof d.name === "string" ? d.name : "";
+      if (importedTiming) p.timing = importedTiming; else delete p.timing;
       /* every shot goes through parseInitial, so a project written by an
        * older build cannot smuggle in fields this one does not know */
       p.shots = d.shots.map((s) => ({
@@ -7367,6 +7375,7 @@ function buildUI(node) {
       b.onclick = (e) => {
         e.stopPropagation();
         settings().overlap = v;
+        if (node.properties?.gcast_project?.timing) node.properties.gcast_project.timing.overlapFrames = v;
         commit(); render(); paintSettings();
       };
       oseg.append(b);
@@ -9364,9 +9373,92 @@ function buildUI(node) {
     }))),
   });
 
+  // A cloned creation contract includes the clock and graph wiring as well as
+  // project content. Consumers cannot mutate node properties through this API.
+  function cleanProjectTiming(value) {
+    if (value == null) return null;
+    if (value.version !== 1 || value.fps !== FPS || ![22, 39].includes(value.overlapFrames)) {
+      throw new Error("Unsupported project timing. This build supports 24 fps and 22/39-frame continuation overlap.");
+    }
+    return { version: 1, fps: FPS, overlapFrames: value.overlapFrames };
+  }
+
+  function projectCreationSnapshot() {
+    const input = node.inputs?.find((port) => port.name === "audio_vae");
+    const output = node.outputs?.find((port) => port.name === "locked_audio");
+    const links = (output?.links || []).map((id) => node.graph?.links?.[id]).filter(Boolean);
+    const lockedAudioToJoin = links.some((link) => {
+      const target = node.graph?.getNodeById(link.target_id);
+      return target?.type === "CSGlideJoinCS" && target.inputs?.[link.target_slot]?.name === "locked_audio";
+    });
+    return Object.freeze({ version: 1, workspace: projectWorkspaceSnapshot(),
+      timing: Object.freeze({ fps: FPS, overlapFrames: overlapFrames() }),
+      song: clone(songOf()),
+      graph: Object.freeze({ audioVae: input?.link != null, lockedAudioToJoin,
+        audioVaeLink: input?.link ?? null, lockedAudioLinks: clone(links) }),
+      settings: Object.freeze({ latentHold: latentHoldOn(), seamReference: !!settings().seamRef }),
+    });
+  }
+
+  function createProjectFromClips(request) {
+    if (!request || request.version !== 1 || typeof request.expectedSnapshot !== "string"
+        || typeof request.name !== "string" || !Array.isArray(request.clips)
+        || !request.clips.length || request.clips.length > 1000) throw new Error("invalid create-project request");
+    if (run) throw new Error("a project cannot be created while the project is rendering");
+    const snapshot = projectCreationSnapshot();
+    if (JSON.stringify(snapshot) !== request.expectedSnapshot) throw new Error("Project, clock, or graph changed. Preview again.");
+    if (request.requireLockedAudio === true && (!snapshot.graph.audioVae || !snapshot.graph.lockedAudioToJoin)) {
+      throw new Error("Connect the H3 audio VAE and H3 Studio locked_audio directly to Glide Join locked_audio before creation.");
+    }
+    if (request.allowSeamReferences === false && snapshot.settings.seamReference) throw new Error("Disable + look for this project creation request.");
+    const maximum = Number(request.maximumSeconds);
+    if (!Number.isFinite(maximum) || maximum <= 0) throw new Error("invalid generation ceiling");
+    // Validate all inputs before touching project state or its Revert snapshot.
+    const shots = request.clips.map((clip, index) => {
+      const raw = clip?.state;
+      if (!raw || typeof clip.name !== "string" || typeof raw.prompt !== "string"
+          || !Number.isSafeInteger(raw.length) || raw.length < 5 || raw.length % 17 !== 5
+          || raw.length / FPS > maximum + 1e-8
+          || typeof clip.link !== "boolean"
+          || (index > 0 && clip.link && raw.length <= overlapFrames())
+          || (raw.cont && Object.keys(raw.cont).length)) {
+        throw new Error("invalid project clip or generation duration");
+      }
+      const state = parseInitial(JSON.stringify(raw));
+      if (state.width !== snap(state.width) || state.height !== snap(state.height)
+          || state.width * state.height > MAX_PIXELS + 1) throw new Error("invalid canvas resolution");
+      for (const slot of [...state.slots.audios, ...state.slots.videos]) {
+        if (slot.file && (![slot.start, slot.end, slot.dur].every(Number.isFinite)
+            || slot.start < 0 || slot.end <= slot.start || slot.end > slot.dur)) throw new Error("invalid source range");
+      }
+      return { id: uid(), name: clip.name, state, link: index > 0 && clip.link, off: false };
+    });
+    shots.forEach((shot, index) => {
+      if (shot.link && shots[index - 1].state.length < overlapFrames()) throw new Error("A linked predecessor is shorter than the continuation overlap.");
+    });
+    stash();
+    const old = proj();
+    seedFromScreen(old);
+    snapProject("before creating project from clips");
+    // Preserve song metadata in Revert: the stock snapshot deliberately omits it.
+    if (node.properties.gcast_project_prev) {
+      node.properties.gcast_project_prev.restoreSong = true;
+      node.properties.gcast_project_prev.song = clone(old.song || null);
+    }
+    node.properties.gcast_project = { name: request.name.trim(), shots, idx: 0,
+      timing: { version: 1, fps: FPS, overlapFrames: snapshot.timing.overlapFrames } };
+    projHandle = null; projLabel = "";
+    load(JSON.stringify(shots[0].state));
+    commit(); paintShotsBtn(); paintPresetName(); renderShots(); paintTimeline();
+    return projectWorkspaceSnapshot();
+  }
+
   const projectNavigationV1 = Object.freeze({
     version: 1,
     clipSettings: projectClipSettingsV1,
+    creationSnapshot: projectCreationSnapshot,
+    isRendering: () => !!run,
+    createProject: createProjectFromClips,
     snapshot: projectWorkspaceSnapshot,
     selectClip: selectProjectClip,
     addClip: addProjectClip,
