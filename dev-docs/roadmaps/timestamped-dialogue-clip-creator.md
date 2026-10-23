@@ -1,8 +1,10 @@
 # Timestamped dialogue clip creator
 
-Requested: 2026-10-20. Status: **planned; deferred until the user's current rendering tests are finished**. Documentation only; implementation and GPU evaluation have not started.
+Requested: 2026-10-20. Implementation resumed with user authorization on 2026-10-22. Status: **prototype implemented in separate development worktrees; real ASR/GPU evaluation pending**. Earlier deferral is superseded.
 
-Scope expanded on 2026-10-20: the creator includes optional Qwen transcription, timestamp-file import, and copy/paste input. The earlier exclusion of ASR execution is superseded. Implementation remains deferred.
+The prototype covers the three explicit input routes, editable transcript review/export, word-aligned safe subdivision, sentence/pause-aware grouping, locked Timeline audio, overlap-inclusive frame limits, editable prompt previews, project export and atomic new-project creation. It uses installed local Qwen models through a single normal ComfyUI queue node, never a separate inference thread or global interrupt. Missing/incomplete models are refused without downloads. Nonempty append remains unsupported. Shared prompts require an explicit `{{dialogue}}` marker and removal of old speech; unsafe or unaligned cuts require reviewed timing correction or retranscription. Saved `timing` metadata makes the matching core retain 24 fps and 22/39-frame overlap through native export/import and Revert.
+
+Verification: 68 companion JavaScript tests, 5 mocked Python adapter tests, and 9 core JavaScript creation/integration tests pass. Isolated browser fixtures cover preview, prompt edits, export/create, stale state, queue waiting/cancellation and source changes, with zero scoped accessibility violations and contrast-review items. **No real Qwen inference, GPU render, or actual generated continuity/lip-sync validation has occurred.** Synthetic source-sample checks model the planned joins, not H3's 40 Hz audio latent quantization. Compare Timeline and Song on short real speech before selecting an established default. The final frame-grid allowance is displayed as an unheld audio tail, not guaranteed silence; H3 may generate sound there, so trim it in post against the source. Text transcript exports preserve supplied precision; SRT uses milliseconds.
 
 ## Objective
 

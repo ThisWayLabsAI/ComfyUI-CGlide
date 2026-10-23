@@ -6,13 +6,15 @@ This document records the planned TWL customizations, the extension surfaces the
 
 It is an internal development document, not part of the proposed upstream issue. The initial upstream request should remain small and reviewable.
 
-## Current checkpoint — 2026-10-12
+## Current checkpoint - 2026-10-22
+
+2026-10-22 implementation checkpoint: the user finished the Simon zoom evaluation (usable across all clips, better holding, green tint/darker contrast) and authorized remote backup plus resuming the dialogue creator. The prior deferred status is superseded. Both v1.4.6 integration branches and the two Dev planning commits are pushed. A dialogue prototype is implemented in the separate core Dev and companion feature worktrees, with transcript input/review, constrained queued Qwen ASR, word-aligned safe segmentation, locked Timeline audio, per-clip prompt review, saved overlap metadata, JSON export, and atomic create/Revert. See the [current handoff](../README.md) and [dialogue roadmap](timestamped-dialogue-clip-creator.md) for limitations and validation. Installed render branches remain unchanged. Real ASR/GPU evaluation is pending; no stable promotion is authorized. Older dated notes below are historical.
 
 2026-10-20 planning follow-up: [Timestamped dialogue clip creator](timestamped-dialogue-clip-creator.md) is a new deferred roadmap item for Simon-style projects. Obtain dialogue timing through integrated Qwen transcription, timestamp-file import, or copy/paste of SRT/Qwen text, then review it before speech-aware grouping, timestamp-derived locked audio windows, and exact per-clip dialogue prompts. Explicit transcription waits for idle rendering resources; it is now in scope, superseding the earlier transcript-import-only plan. The initial 8-second maximum includes continuation overlap and frame-grid rounding. Work begins after the user's current rendering tests; requirements are documented, not implemented or render-validated.
 
 2026-10-17 follow-up: the user confirmed **Apply & continue** works. Companion commit `9465a93` (pushed to companion `main` with user authorization on this date) adds waveform trim handles to workspace audio/video previews, synchronized time fields, keyboard controls, and video seeking. Isolated synthetic-media checks passed; see the handoff for verification scope. Core changes in this follow-up are documentation only. Real-project evaluation remains pending.
 
-See [development handoff](../README.md#current-handoff--2026-10-12) for repository baselines, the authorized commit/push batch, and remaining evaluation. All 52 companion tests passed on this date. The user reported successful real-render batch testing and working find/replace. Duration statistics, bulk section editing, highlighted find previews, and Apply & continue are implemented; the Edit sections activation fix still needs user confirmation (Apply & continue was confirmed on 2026-10-17). No stable promotion is authorized. Prior dated plans and decisions below preserve history; use the latest checked implementation entries and this checkpoint for present behavior.
+See [development handoff](../README.md) for repository baselines, the authorized commit/push batch, and remaining evaluation. All 52 companion tests passed on this date. The user reported successful real-render batch testing and working find/replace. Duration statistics, bulk section editing, highlighted find previews, and Apply & continue are implemented; the Edit sections activation fix still needs user confirmation (Apply & continue was confirmed on 2026-10-17). No stable promotion is authorized. Prior dated plans and decisions below preserve history; use the latest checked implementation entries and this checkpoint for present behavior.
 
 ## Repository Strategy
 
@@ -651,6 +653,8 @@ Important regions:
   - Attaches that controller to an external textarea without exposing mutable project state or duplicating CGlide's suggestion rules.
 - The version 1 `projectNavigation.clipSettings` catalog
   - Exposes immutable ratio ladders and aligned duration presets used by compact companion editors.
+- `projectCreationSnapshot`, `createProjectFromClips`, `cleanProjectTiming`, `overlapFrames`, `projectBlob`, `openProject`, and project Revert
+  - Dialogue creation validates all clips before mutation and snapshots graph/source/clock state. Saved project timing overrides the workflow overlap default. Review JSON/pack export, import, settings and Revert together; special dialogue backups also restore the previous master song.
 - `newProject()`, `projectNavigation.newProject`, and the `cglide:project-new` dispatch in the project New button handler
   - Native default still keeps the visible clip. The companion cancels the presentation event to show choices; core owns confirmation, render-run guard, stash/backup, optional prompt/media reset, and persistence. Clean must snapshot an unlisted visible clip before clearing it. Review all three symbols together when merging upstream.
 - `trim()`'s decimal-second inputs, `projectNavigation.appendClips`, and `projectNavigation.clipSettings.framesForSegment`
