@@ -6,6 +6,24 @@ The prototype covers the three explicit input routes, editable transcript review
 
 Verification: 68 companion JavaScript tests, 5 mocked Python adapter tests, and 9 core JavaScript creation/integration tests pass. Isolated browser fixtures cover preview, prompt edits, export/create, stale state, queue waiting/cancellation and source changes, with zero scoped accessibility violations and contrast-review items. **No real Qwen inference, GPU render, or actual generated continuity/lip-sync validation has occurred.** Synthetic source-sample checks model the planned joins, not H3's 40 Hz audio latent quantization. Compare Timeline and Song on short real speech before selecting an established default. The final frame-grid allowance is displayed as an unheld audio tail, not guaranteed silence; H3 may generate sound there, so trim it in post against the source. Text transcript exports preserve supplied precision; SRT uses milliseconds.
 
+## 2026-10-22 activation and timing clarification
+
+The user authorized activating the prototype for testing in their normal ComfyUI.
+Install the core creation seam (`eca2cd5`, selected from Dev `fd8acbd`) and matching
+companion on the existing integration branches. One **Create clips** launcher
+now offers **Timestamped dialogue (prototype)** and the existing **Reference
+segments (fixed duration)** fallback. This does not promote the stable branch.
+
+The user clarified that dynamic durations are needed for music videos too:
+reviewed lyric/dialogue timestamps can guide boundaries even when framing and
+shots vary. Future planning should separate (1) boundary strategy, (2) source
+role (locked soundtrack, audio/video reference), and (3) visual shot design.
+Manual timestamps should cover instrumental/unaligned passages before optional
+beat/section detection. Fixed lengths are a fallback, not the defining music-video
+workflow. Current spoken-dialogue prompting must not be silently reused as
+singing/lyric-performance prompting. General dynamic reference/music-video
+planning remains future work; first evaluate the installed speech prototype.
+
 ## Objective
 
 Create a Simon-style talking-head project from one audio recording and shared visual instructions. Obtain its timestamped dialogue through integrated Qwen transcription, an imported file, or pasted text. Automatically prepare editable clips, their dialogue prompts, and audio windows. Choose natural speech boundaries while enforcing a hard maximum generated duration per clip, initially 8 seconds.
