@@ -1,7 +1,7 @@
 # Image Carry experiment - design before implementation (2026-10-17)
 
 Branch: experiment/h3-image-continuation, based on core Dev 8d4fe34.
-Worktree: C:/Users/steven/Documents/CGlide-Experiments/h3-image-continuation.
+Worktree: C:/Users/steven/Documents/Projects/dev/CGlide/CGlide-Experiments/h3-image-continuation.
 Implementation and CPU verification used this separate directory outside custom_nodes.
 On 2026-10-17 the user authorized switching the installed core checkout to the
 experimental branch for testing. The separate worktree is retained at a detached
