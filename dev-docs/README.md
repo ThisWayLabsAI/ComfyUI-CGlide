@@ -4,6 +4,16 @@ This directory contains TWL-specific planning, research, decisions, and upstream
 
 These documents belong on `TWL-ComfyUI-CGlide-Dev`. They are not part of the upstream project and must not be included in branches used for upstream pull requests.
 
+## Local workspace relocation - 2026-10-24
+
+The development worktrees now live under `<Documents>\Projects\dev\CGlide`, where Documents is resolved with `[Environment]::GetFolderPath('MyDocuments')`. Read the workspace-level `AGENTS.md` there for the full directory map and startup checks.
+
+- `CGlide-Dev-Planning`: this core Dev checkout and the current maintained handoff.
+- `CGlide-Dialogue-Dev`: the companion dialogue feature checkout; read its README explicitly rather than assuming an installed sibling layout.
+- `CGlide-Experiments/h3-image-continuation`: the preserved detached experiment.
+
+Installed core and companion checkouts remain in `ComfyUI/custom_nodes/`. Git registrations were updated, HEADs and refs preserved, and all 111 CPU/model tests passed before and after relocation. The migration report and evidence are beside these worktrees, outside Git. This is a location and verification update; it does not change the feature status or render-validation limits in the handoff below. Recheck current branches and dirty files before work.
+
 ## Current handoff - 2026-10-22
 
 ### ASR recovery and progress follow-up - 2026-10-22
@@ -31,7 +41,7 @@ The user reported successful Simon zoom rendering across all clips: generally be
 
 The user authorized pushing outstanding work and resuming the timestamped dialogue creator on 2026-10-22. Both installed v1.4.6 integration branches are now published: core `d11087b`, companion `57bf543`. The two dialogue planning commits through `a3f0c88` were also pushed. At that earlier checkpoint, installed repositories were still on the pre-prototype integration baselines; the activation follow-up above supersedes that state. No stable promotion or GPU job was performed.
 
-Dialogue prototype implementation is in the separate core Dev planning worktree (`TWL-ComfyUI-CGlide-Dev`, now merged with the evaluated v1.4.6 baseline) and companion `C:\Users\steven\Documents\CGlide-Dialogue-Dev` worktree (`feature/timestamped-dialogue`). Matching implementation commits: core `fd8acbd`; companion `e9b846b` (creator implementation `99e6e9b` plus precision/tail clarification). These matching changes are now installed as described in the activation follow-up above.
+Dialogue prototype implementation is in the separate core Dev planning worktree (`TWL-ComfyUI-CGlide-Dev`, now merged with the evaluated v1.4.6 baseline) and companion `C:\Users\steven\Documents\Projects\dev\CGlide\CGlide-Dialogue-Dev` worktree (`feature/timestamped-dialogue`). Matching implementation commits: core `fd8acbd`; companion `e9b846b` (creator implementation `99e6e9b` plus precision/tail clarification). These matching changes are now installed as described in the activation follow-up above.
 
 Implemented: SRT/Qwen timestamp file import/paste and editable review, absolute-time transcript export, optional explicit queued Qwen transcription with genuine word alignment, idle-queue and project-render guards, safe cancellation/stale-result handling, speech-aware H3 frame-grid planning under an 8-second ceiling including overlap, locked Timeline source windows, editable per-clip prompts, project JSON export, and atomic new-project creation with one Revert backup. Shared authored prompt structure is preserved with an explicit `{{dialogue}}` insertion marker; old spoken dialogue must be removed by the user. Nonempty-project append is intentionally unsupported.
 

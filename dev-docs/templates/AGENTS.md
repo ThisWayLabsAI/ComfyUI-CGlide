@@ -59,6 +59,17 @@ Review the symbol-based conflict inventory in `dev-docs/roadmaps/cglide-customiz
 - Keep raw sessions and temporary scratch output local and untracked.
 - Never place secrets or confidential material in the public fork.
 
+## Local worktree locations
+
+Resolve the Windows Documents known folder with `[Environment]::GetFolderPath('MyDocuments')`. The CGlide development workspace is `<Documents>\Projects\dev\CGlide`; read its `AGENTS.md` for the directory map before choosing a checkout. The old `<Documents>\CGlide-*` locations were moved on 2026-10-24.
+
+- Core Dev planning/code: `CGlide-Dev-Planning` under that workspace. Its `dev-docs/README.md` is the current development handoff; use it even when the installed checkout has an older handoff.
+- Companion dialogue development: `CGlide-Dialogue-Dev` under that workspace.
+- Image continuation experiment: `CGlide-Experiments/h3-image-continuation` under that workspace.
+- Installed runtime checkouts remain `ComfyUI/custom_nodes/ComfyUI-CGlide` and sibling `ComfyUI-CGlide-TWL`. Check the intended installed or development companion explicitly; the relocated Dev folders are not an installed sibling pair.
+
+These development folders are linked Git worktrees sharing the installed repositories' Git metadata. Inspect `git worktree list --porcelain` and `git status --short --branch` in the relevant repositories; verify current branches rather than relying on historical handoffs. Do not delete the installed repositories, recreate the old paths, or switch installed branches merely to locate development work.
+
 ## Worktree safety
 
 - At the start of a new session, read `dev-docs/README.md` for the dated handoff and then the roadmap's current checkpoint and conflict inventory. Check the sibling companion repository's README and worktree too. Historical plans must not override later decisions; unvalidated renders must not be reported as tested.
